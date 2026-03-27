@@ -96,6 +96,7 @@ These are the ones most users care about:
 - `STASH_SCANNER_API_KEY` - the API key the scanner uses to talk to Stash
 - `STASH_SCANNER_WATCH_ROOTS_FROM_STASH` - tells the scanner to pull library paths directly from Stash
 - `STASH_SCANNER_DRY_RUN` - when `true`, log actions without sending real scan requests
+- `STASH_SCANNER_DEBUG` - when `true`, include verbose debug logs for config, target selection, retries, and Stash polling
 - `STASH_SCANNER_STATE_PATH` - where the scanner stores its saved state and retry info; for Docker or Unraid, use `/config/state.json`
 - `STASH_SCANNER_CONTROL_BIND` - the address and port for the built-in UI and API
 
@@ -133,6 +134,7 @@ API:
 
 - `dry_run=true` means the scanner logs what it would do but does not send a real scan request to Stash.
 - `dry_run=false` sends real `metadataScan` requests to Stash.
+- `debug=true` enables verbose operational logging for troubleshooting.
 - if the control port cannot bind, the app either uses `control.fallback_bind` or exits with a clear error.
 - the Docker image defaults `STASH_SCANNER_STATE_PATH` to `/config/state.json`, so mount a writable host path to `/config` for persistence.
 

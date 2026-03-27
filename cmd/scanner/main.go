@@ -28,6 +28,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	logging.SetDebug(cfg.Debug)
+	logging.DebugEvent(
+		log.Default(),
+		"config_loaded",
+		"config_path", configPath,
+		"state_path", cfg.StatePath,
+		"watch_roots_from_stash", cfg.WatchRootsFromStash,
+		"watch_roots", len(cfg.WatchRoots),
+		"dry_run", cfg.DryRun,
+		"debug", cfg.Debug,
+		"control_bind", cfg.Control.Bind,
+		"control_fallback_bind", cfg.Control.FallbackBind,
+	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

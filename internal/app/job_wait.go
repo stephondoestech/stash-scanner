@@ -30,6 +30,14 @@ func (r *Runner) waitForJob(ctx context.Context, jobID string) (StashTaskStatus,
 				"description", status.Description,
 			)
 			lastStatus = status.Status
+		} else {
+			logging.DebugEvent(
+				r.logger,
+				"stash_task_poll",
+				"job_id", status.ID,
+				"status", status.Status,
+				"progress", fmt.Sprintf("%.0f%%", status.Progress*100),
+			)
 		}
 
 		switch status.Status {

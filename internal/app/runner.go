@@ -130,6 +130,14 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		return fmt.Errorf("load state: %w", err)
 	}
 	finalSnapshot = st
+	logging.DebugEvent(
+		r.logger,
+		"state_loaded",
+		"tracked_paths", len(st.Paths),
+		"pending_paths", len(st.PendingScan.Paths),
+		"last_run_at", st.LastRunAt.Format(time.RFC3339),
+		"last_success_at", st.LastSuccessAt.Format(time.RFC3339),
+	)
 
 	r.updateRunProgress("resolving_roots", "Resolving watch roots")
 	roots, err := r.watchRoots(ctx)
@@ -142,6 +150,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		return fmt.Errorf("resolve watch roots: %w", err)
 	}
 	logging.Event(r.logger, "watch_roots_resolved", "trigger", trigger, "count", len(roots))
+	logging.DebugEvent(r.logger, "watch_roots_list", "roots", roots)
 
 	r.updateRunProgress("scanning_files", fmt.Sprintf("Scanning %d watch roots", len(roots)))
 	result, err := r.detector.Scan(ctx, roots, st.Paths)
@@ -169,6 +178,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	summary.ScanTargets = len(scanTargets)
 	summary.RetryAttempt = retryAttempt
 	summary.RetryDeferred = retryDeferred
+	logging.DebugEvent(r.logger, "scan_targets_resolved", "targets", scanTargets, "retry_attempt", retryAttempt, "retry_deferred", retryDeferred)
 
 	if retryDeferred {
 		r.updateRunProgress("waiting_retry", "Retry deferred until backoff expires")
@@ -180,6 +190,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 			"next_attempt_at", st.PendingScan.NextAttemptAt.Format(time.RFC3339),
 			"attempt", retryAttempt,
 		)
+		logging.DebugEvent(r.logger, "scan_retry_pending_paths", "paths", st.PendingScan.Paths)
 	}
 
 	if len(scanTargets) > 0 && !retryDeferred {
@@ -200,6 +211,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 			summary.StateSaved = true
 			summary.PendingAfter = len(st.PendingScan.Paths)
 			finalSnapshot = st
+			logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths))
 			return fmt.Errorf("trigger scan: %w", err)
 		}
 		summary.StashTask.ID = jobID
@@ -226,6 +238,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 				summary.StateSaved = true
 				summary.PendingAfter = len(st.PendingScan.Paths)
 				finalSnapshot = st
+				logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths))
 				return waitErr
 			}
 		}
@@ -252,6 +265,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	summary.StateSaved = true
 	summary.PendingAfter = len(st.PendingScan.Paths)
 	finalSnapshot = st
+	logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths))
 	r.updateRunProgress("completed", "Scan run completed")
 	return nil
 }

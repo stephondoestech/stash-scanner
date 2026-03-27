@@ -137,6 +137,7 @@ type gqlResponse struct {
 }
 
 func (c *Client) executeQuery(ctx context.Context, endpoint, query string) (gqlResponse, error) {
+	logging.DebugEvent(c.logger, "graphql_request", "endpoint", endpoint, "query", query)
 	body, err := json.Marshal(gqlRequest{Query: query})
 	if err != nil {
 		return gqlResponse{}, fmt.Errorf("encode GraphQL request: %w", err)
@@ -163,6 +164,7 @@ func (c *Client) executeQuery(ctx context.Context, endpoint, query string) (gqlR
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return gqlResponse{}, fmt.Errorf("stash HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
+	logging.DebugEvent(c.logger, "graphql_response", "endpoint", endpoint, "status", resp.StatusCode)
 
 	var payload gqlResponse
 	if err := json.Unmarshal(respBody, &payload); err != nil {

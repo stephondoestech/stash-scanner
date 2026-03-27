@@ -4,6 +4,7 @@ import (
 	"slices"
 	"time"
 
+	"stash-scanner/internal/logging"
 	"stash-scanner/internal/state"
 )
 
@@ -42,7 +43,7 @@ func (r *Runner) nextPendingScan(paths []string, previous state.PendingScan, sca
 		firstFailedAt = now
 	}
 
-	return state.PendingScan{
+	next := state.PendingScan{
 		Paths:         mergedPaths,
 		AttemptCount:  attemptCount,
 		LastError:     scanErr.Error(),
@@ -50,6 +51,15 @@ func (r *Runner) nextPendingScan(paths []string, previous state.PendingScan, sca
 		LastFailedAt:  now,
 		NextAttemptAt: now.Add(r.backoffForAttempt(attemptCount)),
 	}
+	logging.DebugEvent(
+		r.logger,
+		"retry_scheduled",
+		"attempt", next.AttemptCount,
+		"next_attempt_at", next.NextAttemptAt.Format(time.RFC3339),
+		"pending_paths", next.Paths,
+		"error", scanErr,
+	)
+	return next
 }
 
 func (r *Runner) backoffForAttempt(attempt int) time.Duration {

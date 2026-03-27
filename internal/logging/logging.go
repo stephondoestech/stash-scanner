@@ -5,7 +5,14 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
+
+var debugEnabled atomic.Bool
+
+func SetDebug(enabled bool) {
+	debugEnabled.Store(enabled)
+}
 
 func Event(logger *log.Logger, event string, kv ...any) {
 	if logger == nil {
@@ -22,6 +29,13 @@ func Event(logger *log.Logger, event string, kv ...any) {
 	}
 
 	logger.Print(strings.Join(parts, " "))
+}
+
+func DebugEvent(logger *log.Logger, event string, kv ...any) {
+	if !debugEnabled.Load() {
+		return
+	}
+	Event(logger, "debug."+event, kv...)
 }
 
 func formatValue(value any) string {

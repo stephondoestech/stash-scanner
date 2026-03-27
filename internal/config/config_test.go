@@ -15,6 +15,7 @@ func TestLoadConfigFile(t *testing.T) {
 	t.Setenv("STASH_SCANNER_CONTROL_FALLBACK_BIND", "")
 	t.Setenv("STASH_SCANNER_WATCH_ROOTS_FROM_STASH", "")
 	t.Setenv("STASH_SCANNER_DRY_RUN", "")
+	t.Setenv("STASH_SCANNER_DEBUG", "")
 	t.Setenv("STASH_SCANNER_DEBOUNCE_WINDOW", "")
 	t.Setenv("STASH_SCANNER_INTERVAL", "")
 	t.Setenv("STASH_SCANNER_DAILY_TIME", "")
@@ -66,6 +67,7 @@ func TestLoadConfigFromEnvOverrides(t *testing.T) {
 	t.Setenv("STASH_SCANNER_RETRY_MAX_ATTEMPTS", "7")
 	t.Setenv("STASH_SCANNER_RETRY_INITIAL_BACKOFF", "45s")
 	t.Setenv("STASH_SCANNER_RETRY_MAX_BACKOFF", "10m")
+	t.Setenv("STASH_SCANNER_DEBUG", "true")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -90,6 +92,10 @@ func TestLoadConfigFromEnvOverrides(t *testing.T) {
 
 	if !cfg.WatchRootsFromStash {
 		t.Fatal("expected watch roots from stash to be enabled")
+	}
+
+	if !cfg.Debug {
+		t.Fatal("expected debug mode to be enabled")
 	}
 }
 

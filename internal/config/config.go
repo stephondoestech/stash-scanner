@@ -21,6 +21,7 @@ type Config struct {
 	StatePath           string   `json:"state_path"`
 	DebounceWindow      Duration `json:"debounce_window"`
 	DryRun              bool     `json:"dry_run"`
+	Debug               bool     `json:"debug"`
 	Control             Control  `json:"control"`
 	Retry               Retry    `json:"retry"`
 	Schedule            Schedule `json:"schedule"`
@@ -84,6 +85,7 @@ func defaultConfig() Config {
 		StatePath:      "data/state.json",
 		DebounceWindow: Duration{Duration: 30 * time.Second},
 		DryRun:         true,
+		Debug:          false,
 		Control: Control{
 			Bind: "127.0.0.1:8088",
 		},
@@ -119,6 +121,7 @@ func applyEnv(cfg *Config) {
 	overrideString(&cfg.Control.FallbackBind, "STASH_SCANNER_CONTROL_FALLBACK_BIND")
 	overrideBool(&cfg.WatchRootsFromStash, "STASH_SCANNER_WATCH_ROOTS_FROM_STASH")
 	overrideBool(&cfg.DryRun, "STASH_SCANNER_DRY_RUN")
+	overrideBool(&cfg.Debug, "STASH_SCANNER_DEBUG")
 	overrideDuration(&cfg.DebounceWindow.Duration, "STASH_SCANNER_DEBOUNCE_WINDOW")
 	overrideInt(&cfg.Retry.MaxAttempts, "STASH_SCANNER_RETRY_MAX_ATTEMPTS")
 	overrideDuration(&cfg.Retry.InitialBackoff.Duration, "STASH_SCANNER_RETRY_INITIAL_BACKOFF")
