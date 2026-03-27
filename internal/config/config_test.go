@@ -16,6 +16,11 @@ func TestLoadConfigFile(t *testing.T) {
 	t.Setenv("STASH_SCANNER_WATCH_ROOTS_FROM_STASH", "")
 	t.Setenv("STASH_SCANNER_DRY_RUN", "")
 	t.Setenv("STASH_SCANNER_DEBUG", "")
+	t.Setenv("STASH_SCANNER_POST_SCAN_TASKS", "")
+	t.Setenv("STASH_SCANNER_IDENTIFY_STASH_BOX_INDEXES", "")
+	t.Setenv("STASH_SCANNER_IDENTIFY_STASH_BOX_ENDPOINTS", "")
+	t.Setenv("STASH_SCANNER_IDENTIFY_SCRAPER_IDS", "")
+	t.Setenv("STASH_SCANNER_POST_SCAN_CLEAN_DRY_RUN", "")
 	t.Setenv("STASH_SCANNER_DEBOUNCE_WINDOW", "")
 	t.Setenv("STASH_SCANNER_INTERVAL", "")
 	t.Setenv("STASH_SCANNER_DAILY_TIME", "")
@@ -68,6 +73,9 @@ func TestLoadConfigFromEnvOverrides(t *testing.T) {
 	t.Setenv("STASH_SCANNER_RETRY_INITIAL_BACKOFF", "45s")
 	t.Setenv("STASH_SCANNER_RETRY_MAX_BACKOFF", "10m")
 	t.Setenv("STASH_SCANNER_DEBUG", "true")
+	t.Setenv("STASH_SCANNER_POST_SCAN_TASKS", "auto_tag,identify,clean")
+	t.Setenv("STASH_SCANNER_IDENTIFY_STASH_BOX_INDEXES", "0,2")
+	t.Setenv("STASH_SCANNER_POST_SCAN_CLEAN_DRY_RUN", "false")
 
 	cfg, err := Load("")
 	if err != nil {
@@ -96,6 +104,14 @@ func TestLoadConfigFromEnvOverrides(t *testing.T) {
 
 	if !cfg.Debug {
 		t.Fatal("expected debug mode to be enabled")
+	}
+
+	if got, want := len(cfg.PostScan.Tasks), 3; got != want {
+		t.Fatalf("post scan task count mismatch: got %d want %d", got, want)
+	}
+
+	if got, want := len(cfg.PostScan.IdentifyStashBoxIndexes), 2; got != want {
+		t.Fatalf("identify source count mismatch: got %d want %d", got, want)
 	}
 }
 
@@ -151,5 +167,27 @@ func TestValidateRejectsInvalidRetrySettings(t *testing.T) {
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected retry validation error")
+	}
+}
+
+func TestValidateRejectsIdentifyTaskWithoutSources(t *testing.T) {
+	cfg := Config{
+		WatchRoots: []string{"/tmp/media"},
+		StatePath:  "data/state.json",
+		PostScan: PostScan{
+			Tasks: []string{"identify"},
+		},
+		Retry: Retry{
+			MaxAttempts:    1,
+			InitialBackoff: Duration{Duration: 10 * time.Second},
+			MaxBackoff:     Duration{Duration: time.Minute},
+		},
+		Schedule: Schedule{
+			Interval: Duration{Duration: 15 * time.Minute},
+		},
+	}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected identify source validation error")
 	}
 }

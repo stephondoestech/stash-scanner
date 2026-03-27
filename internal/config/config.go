@@ -22,6 +22,7 @@ type Config struct {
 	DebounceWindow      Duration `json:"debounce_window"`
 	DryRun              bool     `json:"dry_run"`
 	Debug               bool     `json:"debug"`
+	PostScan            PostScan `json:"post_scan"`
 	Control             Control  `json:"control"`
 	Retry               Retry    `json:"retry"`
 	Schedule            Schedule `json:"schedule"`
@@ -122,6 +123,7 @@ func applyEnv(cfg *Config) {
 	overrideBool(&cfg.WatchRootsFromStash, "STASH_SCANNER_WATCH_ROOTS_FROM_STASH")
 	overrideBool(&cfg.DryRun, "STASH_SCANNER_DRY_RUN")
 	overrideBool(&cfg.Debug, "STASH_SCANNER_DEBUG")
+	applyPostScanEnv(cfg)
 	overrideDuration(&cfg.DebounceWindow.Duration, "STASH_SCANNER_DEBOUNCE_WINDOW")
 	overrideInt(&cfg.Retry.MaxAttempts, "STASH_SCANNER_RETRY_MAX_ATTEMPTS")
 	overrideDuration(&cfg.Retry.InitialBackoff.Duration, "STASH_SCANNER_RETRY_INITIAL_BACKOFF")
@@ -180,6 +182,10 @@ func (c *Config) Validate() error {
 
 	if c.Retry.MaxBackoff.Duration < c.Retry.InitialBackoff.Duration {
 		return fmt.Errorf("retry.max_backoff must be greater than or equal to retry.initial_backoff")
+	}
+
+	if err := c.validatePostScan(); err != nil {
+		return err
 	}
 
 	return nil

@@ -17,10 +17,11 @@ type PathState struct {
 }
 
 type Snapshot struct {
-	Paths         map[string]PathState `json:"paths"`
-	PendingScan   PendingScan          `json:"pending_scan"`
-	LastRunAt     time.Time            `json:"last_run_at"`
-	LastSuccessAt time.Time            `json:"last_success_at"`
+	Paths           map[string]PathState `json:"paths"`
+	PendingScan     PendingScan          `json:"pending_scan"`
+	PendingDebounce PendingDebounce      `json:"pending_debounce"`
+	LastRunAt       time.Time            `json:"last_run_at"`
+	LastSuccessAt   time.Time            `json:"last_success_at"`
 }
 
 type PendingScan struct {
@@ -30,6 +31,12 @@ type PendingScan struct {
 	FirstFailedAt time.Time `json:"first_failed_at"`
 	LastFailedAt  time.Time `json:"last_failed_at"`
 	NextAttemptAt time.Time `json:"next_attempt_at"`
+}
+
+type PendingDebounce struct {
+	Paths          []string  `json:"paths"`
+	LastDetectedAt time.Time `json:"last_detected_at"`
+	ReadyAt        time.Time `json:"ready_at"`
 }
 
 type Store struct {

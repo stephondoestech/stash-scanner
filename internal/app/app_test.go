@@ -140,8 +140,146 @@ func TestRunOnceDefersRetryUntilBackoffExpires(t *testing.T) {
 		t.Fatalf("load state: %v", err)
 	}
 
-	if got, want := len(updated.PendingScan.Paths), 2; got != want {
+	if got, want := len(updated.PendingScan.Paths), 1; got != want {
 		t.Fatalf("pending path count mismatch: got %d want %d", got, want)
+	}
+
+	if got, want := len(updated.PendingDebounce.Paths), 1; got != want {
+		t.Fatalf("pending debounce path count mismatch: got %d want %d", got, want)
+	}
+}
+
+func TestRunOnceDebouncesNewTargetsBeforeScanning(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "scene.mp4")
+	if err := os.WriteFile(filePath, []byte("media"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	cfg := config.Config{
+		WatchRoots:     []string{root},
+		StatePath:      filepath.Join(t.TempDir(), "state.json"),
+		DebounceWindow: config.Duration{Duration: 30 * time.Second},
+		Retry: config.Retry{
+			MaxAttempts:    5,
+			InitialBackoff: config.Duration{Duration: 10 * time.Second},
+			MaxBackoff:     config.Duration{Duration: time.Minute},
+		},
+		Schedule: config.Schedule{
+			Interval: config.Duration{Duration: time.Minute},
+		},
+	}
+
+	store := state.NewStore(cfg.StatePath)
+	now := time.Date(2026, time.March, 27, 2, 0, 0, 0, time.UTC)
+	client := &fakeClient{}
+	runner := &Runner{
+		cfg:       cfg,
+		logger:    log.New(io.Discard, "", 0),
+		detector:  detect.New([]string{"*.mp4"}, nil),
+		store:     store,
+		client:    client,
+		scheduler: scheduler.New(time.Minute, ""),
+		now:       func() time.Time { return now },
+		pollEvery: time.Millisecond,
+	}
+
+	if err := runner.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	if client.calls != 0 {
+		t.Fatalf("expected no scan call during debounce window, got %d", client.calls)
+	}
+
+	snapshot, err := store.Load()
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+
+	if got, want := len(snapshot.PendingDebounce.Paths), 1; got != want {
+		t.Fatalf("pending debounce path count mismatch: got %d want %d", got, want)
+	}
+
+	if got, want := snapshot.PendingDebounce.ReadyAt, now.Add(30*time.Second); !got.Equal(want) {
+		t.Fatalf("pending debounce ready time mismatch: got %s want %s", got, want)
+	}
+}
+
+func TestRunOnceScansWhenDebounceWindowExpires(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "scene.mp4")
+	if err := os.WriteFile(filePath, []byte("media"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	cfg := config.Config{
+		WatchRoots:     []string{root},
+		StatePath:      filepath.Join(t.TempDir(), "state.json"),
+		DebounceWindow: config.Duration{Duration: 30 * time.Second},
+		Retry: config.Retry{
+			MaxAttempts:    5,
+			InitialBackoff: config.Duration{Duration: 10 * time.Second},
+			MaxBackoff:     config.Duration{Duration: time.Minute},
+		},
+		Schedule: config.Schedule{
+			Interval: config.Duration{Duration: time.Minute},
+		},
+	}
+
+	store := state.NewStore(cfg.StatePath)
+	now := time.Date(2026, time.March, 27, 2, 1, 0, 0, time.UTC)
+	info, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatalf("stat file: %v", err)
+	}
+	snapshot := state.Snapshot{
+		Paths: map[string]state.PathState{
+			filePath: {
+				Path:        filePath,
+				Size:        info.Size(),
+				ModifiedAt:  info.ModTime().UTC(),
+				FirstSeenAt: now.Add(-time.Minute),
+				LastSeenAt:  now.Add(-time.Minute),
+			},
+		},
+		PendingDebounce: state.PendingDebounce{
+			Paths:          []string{root},
+			LastDetectedAt: now.Add(-time.Minute),
+			ReadyAt:        now.Add(-time.Second),
+		},
+	}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatalf("save snapshot: %v", err)
+	}
+
+	client := &fakeClient{}
+	runner := &Runner{
+		cfg:       cfg,
+		logger:    log.New(io.Discard, "", 0),
+		detector:  detect.New([]string{"*.mp4"}, nil),
+		store:     store,
+		client:    client,
+		scheduler: scheduler.New(time.Minute, ""),
+		now:       func() time.Time { return now },
+		pollEvery: time.Millisecond,
+	}
+
+	if err := runner.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	if got, want := client.calls, 1; got != want {
+		t.Fatalf("scan call count mismatch: got %d want %d", got, want)
+	}
+
+	updated, err := store.Load()
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+
+	if got := len(updated.PendingDebounce.Paths); got != 0 {
+		t.Fatalf("expected pending debounce queue to clear, got %d entries", got)
 	}
 }
 
@@ -202,6 +340,69 @@ func TestRunOnceWaitsForStashJobCompletion(t *testing.T) {
 	}
 }
 
+func TestRunOnceRunsConfiguredPostScanTasks(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "scene.mp4")
+	if err := os.WriteFile(filePath, []byte("media"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	cfg := config.Config{
+		WatchRoots:     []string{root},
+		StatePath:      filepath.Join(t.TempDir(), "state.json"),
+		DebounceWindow: config.Duration{Duration: 0},
+		PostScan: config.PostScan{
+			Tasks: []string{"auto_tag", "clean"},
+		},
+		Retry: config.Retry{
+			MaxAttempts:    5,
+			InitialBackoff: config.Duration{Duration: 10 * time.Second},
+			MaxBackoff:     config.Duration{Duration: time.Minute},
+		},
+		Schedule: config.Schedule{
+			Interval: config.Duration{Duration: time.Minute},
+		},
+	}
+
+	store := state.NewStore(cfg.StatePath)
+	client := &fakeClient{
+		jobID: "scan-job",
+		jobs: []stash.Job{
+			{ID: "scan-job", Status: "FINISHED", Description: "Scan", Progress: 1},
+			{ID: "task-1", Status: "FINISHED", Description: "Auto Tag", Progress: 1},
+			{ID: "task-2", Status: "FINISHED", Description: "Clean", Progress: 1},
+		},
+		postScanJobIDs: []string{"task-1", "task-2"},
+	}
+	runner := &Runner{
+		cfg:       cfg,
+		logger:    log.New(io.Discard, "", 0),
+		detector:  detect.New([]string{"*.mp4"}, nil),
+		store:     store,
+		client:    client,
+		scheduler: scheduler.New(time.Minute, ""),
+		now:       func() time.Time { return time.Date(2026, time.March, 27, 1, 30, 0, 0, time.UTC) },
+		pollEvery: time.Millisecond,
+	}
+
+	if err := runner.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	if got, want := len(client.postScanTasks), 2; got != want {
+		t.Fatalf("post scan task count mismatch: got %d want %d", got, want)
+	}
+
+	status, err := runner.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+
+	if got, want := len(status.LastRun.PostScanTasks), 2; got != want {
+		t.Fatalf("completed post scan task count mismatch: got %d want %d", got, want)
+	}
+}
+
 func TestStopActiveRunStopsRemoteJob(t *testing.T) {
 	client := &fakeClient{}
 	runner := &Runner{
@@ -234,15 +435,17 @@ func TestStopActiveRunStopsRemoteJob(t *testing.T) {
 }
 
 type fakeClient struct {
-	roots        []string
-	calls        int
-	err          error
-	jobID        string
-	jobs         []stash.Job
-	findCalls    int
-	stopErr      error
-	stoppedJobID string
-	cancelled    bool
+	roots          []string
+	calls          int
+	err            error
+	jobID          string
+	jobs           []stash.Job
+	postScanTasks  []string
+	postScanJobIDs []string
+	findCalls      int
+	stopErr        error
+	stoppedJobID   string
+	cancelled      bool
 }
 
 func (f *fakeClient) TriggerScan(_ context.Context, _ []string) (string, error) {
@@ -255,6 +458,16 @@ func (f *fakeClient) LibraryRoots(_ context.Context) ([]string, error) {
 		return nil, nil
 	}
 	return append([]string{}, f.roots...), nil
+}
+
+func (f *fakeClient) TriggerPostScanTask(_ context.Context, task stash.PostScanTask, _ []string, _ config.PostScan) (string, error) {
+	f.postScanTasks = append(f.postScanTasks, string(task))
+	if len(f.postScanJobIDs) == 0 {
+		return "", nil
+	}
+	jobID := f.postScanJobIDs[0]
+	f.postScanJobIDs = f.postScanJobIDs[1:]
+	return jobID, nil
 }
 
 func (f *fakeClient) FindJob(_ context.Context, _ string) (stash.Job, error) {

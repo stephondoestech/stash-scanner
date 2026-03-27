@@ -37,6 +37,7 @@ type Runner struct {
 
 type scanClient interface {
 	TriggerScan(context.Context, []string) (string, error)
+	TriggerPostScanTask(context.Context, stash.PostScanTask, []string, config.PostScan) (string, error)
 	LibraryRoots(context.Context) ([]string, error)
 	FindJob(context.Context, string) (stash.Job, error)
 	StopJob(context.Context, string) error
@@ -135,6 +136,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		"state_loaded",
 		"tracked_paths", len(st.Paths),
 		"pending_paths", len(st.PendingScan.Paths),
+		"pending_debounce_paths", len(st.PendingDebounce.Paths),
 		"last_run_at", st.LastRunAt.Format(time.RFC3339),
 		"last_success_at", st.LastSuccessAt.Format(time.RFC3339),
 	)
@@ -164,7 +166,8 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	}
 	summary.TrackedFiles = len(result.Current)
 	summary.DetectedTargets = len(result.Targets)
-	summary.PendingTargets = len(st.PendingScan.Paths)
+	st.PendingDebounce = r.nextPendingDebounce(result.Targets, st.PendingDebounce, summary.StartedAt)
+	summary.PendingTargets = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
 	logging.Event(
 		r.logger,
 		"changes_detected",
@@ -173,16 +176,27 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		"detected_targets", summary.DetectedTargets,
 		"pending_targets", summary.PendingTargets,
 	)
+	logging.DebugEvent(r.logger, "pending_debounce_paths", "paths", st.PendingDebounce.Paths, "ready_at", st.PendingDebounce.ReadyAt.Format(time.RFC3339))
 
-	scanTargets, retryAttempt, retryDeferred := r.resolveScanTargets(result.Targets, st.PendingScan, summary.StartedAt)
+	debounceTargets, debounceDeferred := r.resolveDebounceTargets(st.PendingDebounce, summary.StartedAt)
+	scanTargets, retryAttempt, retryDeferred := r.resolveScanTargets(debounceTargets, st.PendingScan, summary.StartedAt)
 	summary.ScanTargets = len(scanTargets)
 	summary.RetryAttempt = retryAttempt
 	summary.RetryDeferred = retryDeferred
-	logging.DebugEvent(r.logger, "scan_targets_resolved", "targets", scanTargets, "retry_attempt", retryAttempt, "retry_deferred", retryDeferred)
+	logging.DebugEvent(r.logger, "scan_targets_resolved", "targets", scanTargets, "retry_attempt", retryAttempt, "retry_deferred", retryDeferred, "debounce_deferred", debounceDeferred)
+
+	if debounceDeferred {
+		r.updateRunProgress("debouncing_changes", fmt.Sprintf("Holding %d path targets until debounce window expires", len(st.PendingDebounce.Paths)))
+		logging.Event(
+			r.logger,
+			"scan_debounced",
+			"pending_paths", len(st.PendingDebounce.Paths),
+			"ready_at", st.PendingDebounce.ReadyAt.Format(time.RFC3339),
+		)
+	}
 
 	if retryDeferred {
 		r.updateRunProgress("waiting_retry", "Retry deferred until backoff expires")
-		st.PendingScan.Paths = uniqueSorted(append(st.PendingScan.Paths, result.Targets...))
 		logging.Event(
 			r.logger,
 			"scan_retry_deferred",
@@ -201,6 +215,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		if err != nil {
 			summary.LastError = err.Error()
 			st.PendingScan = r.nextPendingScan(scanTargets, st.PendingScan, err, summary.StartedAt)
+			st.PendingDebounce = clearPendingDebounce(st.PendingDebounce, debounceTargets)
 			st.Paths = result.Current
 			st.LastRunAt = result.FinishedAt
 			finalSnapshot = st
@@ -209,9 +224,9 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 				return fmt.Errorf("save failed state: %w", saveErr)
 			}
 			summary.StateSaved = true
-			summary.PendingAfter = len(st.PendingScan.Paths)
+			summary.PendingAfter = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
 			finalSnapshot = st
-			logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths))
+			logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths), "pending_debounce_paths", len(st.PendingDebounce.Paths))
 			return fmt.Errorf("trigger scan: %w", err)
 		}
 		summary.StashTask.ID = jobID
@@ -227,6 +242,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 				} else {
 					st.PendingScan = r.nextPendingScan(scanTargets, st.PendingScan, waitErr, summary.StartedAt)
 				}
+				st.PendingDebounce = clearPendingDebounce(st.PendingDebounce, debounceTargets)
 				st.Paths = result.Current
 				st.LastRunAt = result.FinishedAt
 				finalSnapshot = st
@@ -236,14 +252,38 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 					return fmt.Errorf("save failed state: %w", saveErr)
 				}
 				summary.StateSaved = true
-				summary.PendingAfter = len(st.PendingScan.Paths)
+				summary.PendingAfter = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
 				finalSnapshot = st
-				logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths))
+				logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths), "pending_debounce_paths", len(st.PendingDebounce.Paths))
 				return waitErr
 			}
 		}
 		summary.ScanSucceeded = true
+		postScanTasks, postScanTask, postScanErr := r.runPostScanTasks(ctx, scanTargets)
+		summary.PostScanTasks = postScanTasks
+		if postScanTask.ID != "" || postScanTask.Status != "" {
+			summary.StashTask = postScanTask
+		}
+		if postScanErr != nil {
+			summary.LastError = postScanErr.Error()
+			st.PendingScan = r.nextPendingScan(scanTargets, st.PendingScan, postScanErr, summary.StartedAt)
+			st.PendingDebounce = clearPendingDebounce(st.PendingDebounce, debounceTargets)
+			st.Paths = result.Current
+			st.LastRunAt = result.FinishedAt
+			finalSnapshot = st
+			r.updateRunProgress("saving_state", "Saving scanner state")
+			if saveErr := r.store.Save(st); saveErr != nil {
+				summary.LastError = saveErr.Error()
+				return fmt.Errorf("save failed state: %w", saveErr)
+			}
+			summary.StateSaved = true
+			summary.PendingAfter = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
+			finalSnapshot = st
+			logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths), "pending_debounce_paths", len(st.PendingDebounce.Paths))
+			return postScanErr
+		}
 		st.PendingScan = state.PendingScan{}
+		st.PendingDebounce = clearPendingDebounce(st.PendingDebounce, debounceTargets)
 	} else if len(scanTargets) == 0 {
 		r.updateRunProgress("idle", "No changed scan targets found")
 		logging.Event(r.logger, "scan_skipped", "reason", "no_changed_targets")
@@ -263,9 +303,9 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	}
 
 	summary.StateSaved = true
-	summary.PendingAfter = len(st.PendingScan.Paths)
+	summary.PendingAfter = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
 	finalSnapshot = st
-	logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths))
+	logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths), "pending_debounce_paths", len(st.PendingDebounce.Paths))
 	r.updateRunProgress("completed", "Scan run completed")
 	return nil
 }

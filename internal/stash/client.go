@@ -122,10 +122,13 @@ type gqlError struct {
 
 type gqlResponse struct {
 	Data struct {
-		MetadataScan  json.RawMessage `json:"metadataScan"`
-		FindJob       *Job            `json:"findJob"`
-		StopJob       bool            `json:"stopJob"`
-		Configuration struct {
+		MetadataScan     json.RawMessage `json:"metadataScan"`
+		MetadataAutoTag  json.RawMessage `json:"metadataAutoTag"`
+		MetadataIdentify json.RawMessage `json:"metadataIdentify"`
+		MetadataClean    json.RawMessage `json:"metadataClean"`
+		FindJob          *Job            `json:"findJob"`
+		StopJob          bool            `json:"stopJob"`
+		Configuration    struct {
 			General struct {
 				Stashes []struct {
 					Path string `json:"path"`

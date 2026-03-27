@@ -97,12 +97,17 @@ These are the ones most users care about:
 - `STASH_SCANNER_WATCH_ROOTS_FROM_STASH` - tells the scanner to pull library paths directly from Stash
 - `STASH_SCANNER_DRY_RUN` - when `true`, log actions without sending real scan requests
 - `STASH_SCANNER_DEBUG` - when `true`, include verbose debug logs for config, target selection, retries, and Stash polling
+- `STASH_SCANNER_POST_SCAN_TASKS` - optional follow-up tasks after a successful scan; supported values are `auto_tag`, `identify`, and `clean`
 - `STASH_SCANNER_STATE_PATH` - where the scanner stores its saved state and retry info; for Docker or Unraid, use `/config/state.json`
 - `STASH_SCANNER_CONTROL_BIND` - the address and port for the built-in UI and API
 
 Optional:
 
 - `STASH_SCANNER_WATCH_ROOTS` - manual library paths if you do not want to pull them from Stash
+- `STASH_SCANNER_IDENTIFY_STASH_BOX_INDEXES` - stash box indexes to use when `identify` is enabled
+- `STASH_SCANNER_IDENTIFY_STASH_BOX_ENDPOINTS` - stash box endpoints to use when `identify` is enabled
+- `STASH_SCANNER_IDENTIFY_SCRAPER_IDS` - scraper ids to use when `identify` is enabled
+- `STASH_SCANNER_POST_SCAN_CLEAN_DRY_RUN` - when `true`, run the `clean` post-scan task as a dry run
 - `STASH_SCANNER_CONTROL_FALLBACK_BIND` - backup address and port if the main UI bind fails
 - `STASH_SCANNER_INTERVAL` - how often the scanner checks for changes
 - `STASH_SCANNER_RETRY_MAX_ATTEMPTS` - maximum retry count for failed scan requests
@@ -135,6 +140,7 @@ API:
 - `dry_run=true` means the scanner logs what it would do but does not send a real scan request to Stash.
 - `dry_run=false` sends real `metadataScan` requests to Stash.
 - `debug=true` enables verbose operational logging for troubleshooting.
+- `post_scan_tasks=auto_tag,identify` will run those tasks after a successful scan; `identify` requires at least one configured identify source.
 - if the control port cannot bind, the app either uses `control.fallback_bind` or exits with a clear error.
 - the Docker image defaults `STASH_SCANNER_STATE_PATH` to `/config/state.json`, so mount a writable host path to `/config` for persistence.
 
@@ -142,3 +148,7 @@ API:
 
 - commit messages should follow the Commitizen / Conventional Commits style used by this repo
 - this project was built with assistance from OpenAI Codex for transparency
+
+## Known Issues
+
+Current state file grows with the size of the Stash instance so it can easily exceed 1 GB or more. Will work on solving this in a future release. 

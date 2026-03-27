@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"stash-scanner/internal/config"
 )
 
 func TestTriggerScanSendsGraphQLRequest(t *testing.T) {
@@ -114,6 +116,64 @@ func TestStopJobSendsMutation(t *testing.T) {
 
 	if !strings.Contains(gotQuery, `stopJob(job_id: "job-123")`) {
 		t.Fatalf("expected stopJob mutation, got %q", gotQuery)
+	}
+}
+
+func TestTriggerPostScanTaskAutoTagSendsMutation(t *testing.T) {
+	var gotQuery string
+
+	client := NewClient("http://stash.local", "secret-key", false)
+	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+
+		var req gqlRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		gotQuery = req.Query
+		return jsonResponse(`{"data":{"metadataAutoTag":"job-234"}}`), nil
+	})}
+
+	jobID, err := client.TriggerPostScanTask(context.Background(), PostScanAutoTag, []string{"/media/library/scene"}, config.PostScan{})
+	if err != nil {
+		t.Fatalf("TriggerPostScanTask: %v", err)
+	}
+	if got, want := jobID, "job-234"; got != want {
+		t.Fatalf("job id mismatch: got %q want %q", got, want)
+	}
+	if !strings.Contains(gotQuery, "metadataAutoTag") {
+		t.Fatalf("expected metadataAutoTag mutation, got %q", gotQuery)
+	}
+}
+
+func TestTriggerPostScanTaskIdentifyIncludesSources(t *testing.T) {
+	var gotQuery string
+
+	client := NewClient("http://stash.local", "secret-key", false)
+	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var req gqlRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		gotQuery = req.Query
+		return jsonResponse(`{"data":{"metadataIdentify":"job-345"}}`), nil
+	})}
+
+	_, err := client.TriggerPostScanTask(context.Background(), PostScanIdentify, []string{"/media/library/scene"}, config.PostScan{
+		IdentifyStashBoxIndexes: []int{0},
+	})
+	if err != nil {
+		t.Fatalf("TriggerPostScanTask: %v", err)
+	}
+	if !strings.Contains(gotQuery, "metadataIdentify") || !strings.Contains(gotQuery, "stash_box_index: 0") {
+		t.Fatalf("expected identify mutation with source, got %q", gotQuery)
 	}
 }
 

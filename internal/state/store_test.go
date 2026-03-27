@@ -90,3 +90,33 @@ func TestSaveAndLoadPendingScanRoundTrip(t *testing.T) {
 		t.Fatalf("pending attempt count mismatch: got %d want %d", got, want)
 	}
 }
+
+func TestSaveAndLoadPendingDebounceRoundTrip(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "data", "state.json"))
+	now := time.Now().UTC().Round(time.Second)
+	input := Snapshot{
+		Paths: map[string]PathState{},
+		PendingDebounce: PendingDebounce{
+			Paths:          []string{"/media/a"},
+			LastDetectedAt: now,
+			ReadyAt:        now.Add(30 * time.Second),
+		},
+	}
+
+	if err := store.Save(input); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	output, err := store.Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if got, want := len(output.PendingDebounce.Paths), 1; got != want {
+		t.Fatalf("pending debounce path count mismatch: got %d want %d", got, want)
+	}
+
+	if got, want := output.PendingDebounce.ReadyAt, input.PendingDebounce.ReadyAt; !got.Equal(want) {
+		t.Fatalf("pending debounce ready time mismatch: got %s want %s", got, want)
+	}
+}

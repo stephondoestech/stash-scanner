@@ -8,6 +8,7 @@ const els = {
   activityDetail: document.getElementById("activity-detail"),
   stashTask: document.getElementById("stash-task"),
   currentRun: document.getElementById("current-run"),
+  pendingDebounce: document.getElementById("pending-debounce"),
   pendingRetry: document.getElementById("pending-retry"),
   watchRoots: document.getElementById("watch-roots"),
   lastSummary: document.getElementById("last-summary"),
@@ -27,18 +28,20 @@ function render(status) {
   const running = status.running;
   const last = status.last_run || {};
   const pending = status.pending_scan || {};
+  const debounce = status.pending_debounce || {};
   const current = status.current_run || {};
   const task = current.stash_task || last.stash_task || {};
 
   els.version.textContent = status.version || "dev";
   els.mode.textContent = status.dry_run ? "Dry Run" : "Live";
   els.lastRun.textContent = fmt(status.last_run_at);
-  els.pendingCount.textContent = String((pending.paths || []).length);
+  els.pendingCount.textContent = String((pending.paths || []).length + (debounce.paths || []).length);
   els.lastOutcome.textContent = last.stopped ? "Stopped" : (last.scan_succeeded ? "Success" : (last.last_error ? "Failed" : "Idle"));
   els.activity.textContent = running ? humanPhase(current.phase) : "Idle";
   els.activityDetail.textContent = running ? formatCurrentRun(current) : "No active run";
   els.stashTask.textContent = formatTask(task);
   els.currentRun.textContent = running ? JSON.stringify(status.current_run, null, 2) : "No active run";
+  els.pendingDebounce.textContent = JSON.stringify(debounce, null, 2);
   els.pendingRetry.textContent = JSON.stringify(pending, null, 2);
   els.watchRoots.textContent = (status.watch_roots || []).join("\n") || "-";
   els.lastSummary.textContent = JSON.stringify(last, null, 2);
@@ -54,7 +57,9 @@ function humanPhase(phase) {
     case "resolving_roots": return "Resolving Roots";
     case "scanning_files": return "Scanning Files";
     case "triggering_scan": return "Triggering Stash";
+    case "post_scan_task": return "Running Post-Scan Task";
     case "waiting_retry": return "Waiting To Retry";
+    case "debouncing_changes": return "Debouncing Changes";
     case "saving_state": return "Saving State";
     case "waiting_for_stash": return "Waiting For Stash";
     case "stopping": return "Stopping";

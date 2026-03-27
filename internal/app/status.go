@@ -24,6 +24,7 @@ type RunSummary struct {
 	RetryAttempt    int             `json:"retry_attempt"`
 	RetryDeferred   bool            `json:"retry_deferred"`
 	StateSaved      bool            `json:"state_saved"`
+	PostScanTasks   []string        `json:"post_scan_tasks,omitempty"`
 	StashTask       StashTaskStatus `json:"stash_task"`
 	LastError       string          `json:"last_error,omitempty"`
 }
@@ -38,17 +39,18 @@ type RunState struct {
 }
 
 type Status struct {
-	Version             string            `json:"version"`
-	Now                 time.Time         `json:"now"`
-	Running             bool              `json:"running"`
-	CurrentRun          RunState          `json:"current_run"`
-	LastRun             RunSummary        `json:"last_run"`
-	PendingScan         state.PendingScan `json:"pending_scan"`
-	LastRunAt           time.Time         `json:"last_run_at"`
-	LastSuccess         time.Time         `json:"last_success_at"`
-	WatchRoots          []string          `json:"watch_roots"`
-	WatchRootsFromStash bool              `json:"watch_roots_from_stash"`
-	DryRun              bool              `json:"dry_run"`
+	Version             string                `json:"version"`
+	Now                 time.Time             `json:"now"`
+	Running             bool                  `json:"running"`
+	CurrentRun          RunState              `json:"current_run"`
+	LastRun             RunSummary            `json:"last_run"`
+	PendingScan         state.PendingScan     `json:"pending_scan"`
+	PendingDebounce     state.PendingDebounce `json:"pending_debounce"`
+	LastRunAt           time.Time             `json:"last_run_at"`
+	LastSuccess         time.Time             `json:"last_success_at"`
+	WatchRoots          []string              `json:"watch_roots"`
+	WatchRootsFromStash bool                  `json:"watch_roots_from_stash"`
+	DryRun              bool                  `json:"dry_run"`
 }
 
 func (r *Runner) Status(_ context.Context) (Status, error) {
@@ -67,6 +69,7 @@ func (r *Runner) Status(_ context.Context) (Status, error) {
 		CurrentRun:          r.currentRun,
 		LastRun:             r.lastSummary,
 		PendingScan:         snapshot.PendingScan,
+		PendingDebounce:     snapshot.PendingDebounce,
 		LastRunAt:           snapshot.LastRunAt,
 		LastSuccess:         snapshot.LastSuccessAt,
 		WatchRoots:          append([]string{}, r.cfg.WatchRoots...),
@@ -127,6 +130,7 @@ func (r *Runner) logRunSummary(summary RunSummary, snapshot state.Snapshot) {
 		"retry_attempt", summary.RetryAttempt,
 		"retry_deferred", summary.RetryDeferred,
 		"state_saved", summary.StateSaved,
+		"post_scan_tasks", summary.PostScanTasks,
 		"last_run_at", snapshot.LastRunAt.Format(time.RFC3339),
 		"last_success_at", snapshot.LastSuccessAt.Format(time.RFC3339),
 		"duration", summary.FinishedAt.Sub(summary.StartedAt).Round(time.Millisecond),
