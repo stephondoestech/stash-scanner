@@ -105,12 +105,14 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	}
 	finalSnapshot = st
 
+	r.updateRunProgress("resolving_roots", "Resolving watch roots")
 	roots, err := r.watchRoots(ctx)
 	if err != nil {
 		summary.LastError = err.Error()
 		return fmt.Errorf("resolve watch roots: %w", err)
 	}
 
+	r.updateRunProgress("scanning_files", fmt.Sprintf("Scanning %d watch roots", len(roots)))
 	result, err := r.detector.Scan(roots, st.Paths)
 	if err != nil {
 		summary.LastError = err.Error()
@@ -126,11 +128,13 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	summary.RetryDeferred = retryDeferred
 
 	if retryDeferred {
+		r.updateRunProgress("waiting_retry", "Retry deferred until backoff expires")
 		st.PendingScan.Paths = uniqueSorted(append(st.PendingScan.Paths, result.Targets...))
 	}
 
 	if len(scanTargets) > 0 && !retryDeferred {
 		summary.ScanAttempted = true
+		r.updateRunProgress("triggering_scan", fmt.Sprintf("Requesting Stash scan for %d path targets", len(scanTargets)))
 		if err := r.client.TriggerScan(ctx, scanTargets); err != nil {
 			summary.LastError = err.Error()
 			st.PendingScan = r.nextPendingScan(scanTargets, st.PendingScan, err, summary.StartedAt)
@@ -148,6 +152,8 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		}
 		summary.ScanSucceeded = true
 		st.PendingScan = state.PendingScan{}
+	} else if len(scanTargets) == 0 {
+		r.updateRunProgress("idle", "No changed scan targets found")
 	}
 
 	st.Paths = result.Current
@@ -157,6 +163,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	}
 
 	finalSnapshot = st
+	r.updateRunProgress("saving_state", "Saving scanner state")
 	if err := r.store.Save(st); err != nil {
 		summary.LastError = err.Error()
 		return fmt.Errorf("save state: %w", err)
@@ -165,6 +172,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	summary.StateSaved = true
 	summary.PendingAfter = len(st.PendingScan.Paths)
 	finalSnapshot = st
+	r.updateRunProgress("completed", "Scan run completed")
 	return nil
 }
 

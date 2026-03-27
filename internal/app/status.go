@@ -28,6 +28,9 @@ type RunSummary struct {
 type RunState struct {
 	Trigger   string    `json:"trigger"`
 	StartedAt time.Time `json:"started_at"`
+	Phase     string    `json:"phase"`
+	Detail    string    `json:"detail"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Status struct {
@@ -76,7 +79,14 @@ func (r *Runner) beginRun(trigger string) bool {
 	}
 
 	r.running = true
-	r.currentRun = RunState{Trigger: trigger, StartedAt: r.now()}
+	now := r.now()
+	r.currentRun = RunState{
+		Trigger:   trigger,
+		StartedAt: now,
+		Phase:     "starting",
+		Detail:    "Preparing scan run",
+		UpdatedAt: now,
+	}
 	return true
 }
 
@@ -115,4 +125,16 @@ func (r *Runner) logRunSummary(summary RunSummary, snapshot state.Snapshot) {
 	if summary.LastError != "" {
 		r.logger.Printf("run error: %s", summary.LastError)
 	}
+}
+
+func (r *Runner) updateRunProgress(phase, detail string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.running {
+		return
+	}
+
+	r.currentRun.Phase = phase
+	r.currentRun.Detail = detail
+	r.currentRun.UpdatedAt = r.now()
 }
