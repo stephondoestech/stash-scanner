@@ -126,9 +126,12 @@ Optional:
 make run-ui
 make run
 make run-once
+go run ./cmd/scanner -requeue-paths /path/one,/path/two
 make test
 make docker-build
 ```
+
+Use `-requeue-paths` when files were written into the scanner state but never made it into Stash. The command removes tracked entries beneath those paths from the state file and exits; run the scanner again afterward so it can rediscover and rescan them.
 
 ## UI And API
 
@@ -140,6 +143,7 @@ API:
 
 - `GET /api/status`
 - `POST /api/run-now`
+- `POST /api/flush-debounce`
 
 ## Notes
 
@@ -149,6 +153,8 @@ API:
 - `post_scan_tasks=auto_tag,identify` will run those tasks after a successful scan; `identify` requires at least one configured identify source.
 - if the control port cannot bind, the app either uses `control.fallback_bind` or exits with a clear error.
 - the Docker image defaults `STASH_SCANNER_STATE_PATH` to `/config/state.json`, so mount a writable host path to `/config` for persistence.
+- scheduled mode waits for the first configured interval or daily time; it does not auto-run a scan immediately on service startup
+- the control UI can promote pending debounce paths for immediate processing with `Scan Pending Now`
 
 ## Project Notes
 

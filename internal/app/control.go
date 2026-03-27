@@ -9,6 +9,7 @@ import (
 )
 
 var ErrNoRunInProgress = errors.New("no active scan run")
+var ErrNoPendingDebounce = errors.New("no pending debounce paths")
 
 func (r *Runner) StopActiveRun(ctx context.Context) error {
 	r.mu.Lock()
@@ -36,5 +37,41 @@ func (r *Runner) StopActiveRun(ctx context.Context) error {
 		return fmt.Errorf("stop stash job %s: %w", taskID, err)
 	}
 
+	return nil
+}
+
+func (r *Runner) FlushPendingDebounce() error {
+	r.requestDebounceFlush()
+
+	st, err := r.store.Load()
+	if err != nil {
+		return err
+	}
+
+	if len(st.PendingDebounce.Paths) == 0 {
+		r.mu.RLock()
+		running := r.running
+		r.mu.RUnlock()
+		if running {
+			return nil
+		}
+		return ErrNoPendingDebounce
+	}
+
+	st.PendingDebounce.ReadyAt = r.now()
+	if err := r.store.Save(st); err != nil {
+		return err
+	}
+
+	r.mu.RLock()
+	running := r.running
+	r.mu.RUnlock()
+	if running {
+		return nil
+	}
+
+	if err := r.StartManualRun(); err != nil && !errors.Is(err, ErrRunInProgress) {
+		return err
+	}
 	return nil
 }

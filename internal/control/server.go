@@ -22,6 +22,7 @@ type Runner interface {
 	Status(context.Context) (app.Status, error)
 	StartManualRun() error
 	StopActiveRun(context.Context) error
+	FlushPendingDebounce() error
 }
 
 type Server struct {
@@ -56,6 +57,7 @@ func New(addr, fallbackAddr string, runner Runner, logger *log.Logger) *Server {
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/run-now", s.handleRunNow)
 	mux.HandleFunc("/api/stop", s.handleStop)
+	mux.HandleFunc("/api/flush-debounce", s.handleFlushDebounce)
 	return s
 }
 
@@ -183,6 +185,23 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "stopping"})
 	case errors.Is(err, app.ErrNoRunInProgress):
+		writeJSON(w, http.StatusConflict, map[string]string{"status": "idle"})
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleFlushDebounce(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	err := s.runner.FlushPendingDebounce()
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "flushing"})
+	case errors.Is(err, app.ErrNoPendingDebounce):
 		writeJSON(w, http.StatusConflict, map[string]string{"status": "idle"})
 	default:
 		http.Error(w, err.Error(), http.StatusInternalServerError)

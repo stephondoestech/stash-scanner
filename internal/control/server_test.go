@@ -90,6 +90,34 @@ func TestStopHandlerReturnsConflictWhenIdle(t *testing.T) {
 	}
 }
 
+func TestFlushDebounceHandlerReturnsAccepted(t *testing.T) {
+	server := New("127.0.0.1:0", "", &fakeRunner{}, log.New(io.Discard, "", 0))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/flush-debounce", nil)
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+
+	if !strings.Contains(rec.Body.String(), "flushing") {
+		t.Fatalf("expected flushing body, got %q", rec.Body.String())
+	}
+}
+
+func TestFlushDebounceHandlerReturnsConflictWhenIdle(t *testing.T) {
+	server := New("127.0.0.1:0", "", &fakeRunner{flushErr: app.ErrNoPendingDebounce}, log.New(io.Discard, "", 0))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/flush-debounce", nil)
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusConflict; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+}
+
 func TestFormatBindErrorAddressInUse(t *testing.T) {
 	err := formatBindError("127.0.0.1:8088", syscall.EADDRINUSE)
 	if !strings.Contains(err.Error(), "address already in use") {
@@ -112,9 +140,10 @@ func TestFormatBindErrorGeneric(t *testing.T) {
 }
 
 type fakeRunner struct {
-	status  app.Status
-	runErr  error
-	stopErr error
+	status   app.Status
+	runErr   error
+	stopErr  error
+	flushErr error
 }
 
 func (f *fakeRunner) Status(context.Context) (app.Status, error) {
@@ -127,4 +156,8 @@ func (f *fakeRunner) StartManualRun() error {
 
 func (f *fakeRunner) StopActiveRun(context.Context) error {
 	return f.stopErr
+}
+
+func (f *fakeRunner) FlushPendingDebounce() error {
+	return f.flushErr
 }

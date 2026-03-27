@@ -5,53 +5,139 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Stash Scanner Control</title>
   <style>
-    :root { color-scheme: light; --bg:#f4efe6; --panel:#fffdf8; --ink:#1f1d19; --muted:#6e665d; --line:#d6c9b7; --accent:#176b5d; --warn:#8c4f1c; font-family: "IBM Plex Sans", "Avenir Next", sans-serif; }
-    body { margin:0; background:linear-gradient(160deg,#efe4d2,#f8f5ee 55%,#e2eee8); color:var(--ink); }
-    main { max-width:960px; margin:0 auto; padding:32px 20px 48px; }
-    h1 { margin:0 0 8px; font-size:2.2rem; letter-spacing:-0.04em; }
+    :root { color-scheme: light; --bg:#f4efe6; --panel:#fffdf8; --ink:#1f1d19; --muted:#6e665d; --line:#d6c9b7; --accent:#176b5d; --accent-soft:#dff1ec; --warn:#8c4f1c; --warn-soft:#f4e0cf; --shadow:0 18px 40px rgba(31,29,25,.08); font-family:"IBM Plex Sans","Avenir Next",sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:
+      radial-gradient(circle at top left, rgba(255,255,255,.65), transparent 30%),
+      linear-gradient(160deg,#efe4d2,#f8f5ee 55%,#e2eee8);
+      color:var(--ink); }
+    main { max-width:1180px; margin:0 auto; padding:32px 20px 48px; }
+    h1 { margin:0 0 8px; font-size:2.4rem; letter-spacing:-0.05em; }
     p { color:var(--muted); }
+    .hero { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:flex-end; }
     .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); margin:24px 0; }
-    .panel { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:18px; box-shadow:0 10px 30px rgba(31,29,25,.07); }
-    .label { font-size:.82rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
-    .value { margin-top:8px; font-size:1.6rem; font-weight:700; }
-    button { border:0; border-radius:999px; background:var(--accent); color:#fff; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; }
-    button[disabled] { opacity:.55; cursor:not-allowed; }
-    pre { white-space:pre-wrap; word-break:break-word; font-size:.92rem; line-height:1.45; margin:0; }
-    .status { display:flex; gap:12px; align-items:center; margin:20px 0; }
-    .dot { width:12px; height:12px; border-radius:50%; background:#b3a48f; }
+    .grid.two { grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); }
+    .grid.three { grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:22px; padding:18px; box-shadow:var(--shadow); }
+    .label { font-size:.78rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); }
+    .value { margin-top:8px; font-size:1.65rem; font-weight:700; line-height:1.05; }
+    .subvalue { margin-top:6px; color:var(--muted); font-size:.92rem; }
+    button { border:0; border-radius:999px; background:var(--accent); color:#fff; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; transition:transform .15s ease, opacity .15s ease; }
+    button.secondary { background:#ece2d3; color:var(--ink); }
+    button.warn { background:#8c4f1c; }
+    button:hover:not([disabled]) { transform:translateY(-1px); }
+    button[disabled] { opacity:.55; cursor:not-allowed; transform:none; }
+    .status { display:flex; gap:12px; align-items:center; margin:22px 0 14px; padding:14px 16px; border-radius:18px; background:rgba(255,253,248,.72); border:1px solid rgba(214,201,183,.8); backdrop-filter:blur(12px); }
+    .dot { width:12px; height:12px; border-radius:50%; background:#b3a48f; flex:0 0 auto; }
     .dot.live { background:var(--accent); box-shadow:0 0 0 8px rgba(23,107,93,.12); }
     .dot.warn { background:var(--warn); box-shadow:0 0 0 8px rgba(140,79,28,.12); }
+    .status-meta { margin-left:auto; color:var(--muted); font-size:.92rem; }
+    .stack { display:grid; gap:12px; }
+    .kv { display:grid; gap:10px; margin-top:14px; }
+    .row { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; }
+    .row strong { font-size:.95rem; }
+    .row span { color:var(--muted); text-align:right; }
+    .meter { margin-top:14px; height:10px; border-radius:999px; background:#eadfce; overflow:hidden; }
+    .meter > span { display:block; height:100%; width:0%; background:linear-gradient(90deg,#176b5d,#2ea189); transition:width .2s ease; }
+    .pill { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:999px; background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:.85rem; }
+    .pill.warn { background:var(--warn-soft); color:var(--warn); }
+    ul { list-style:none; padding:0; margin:14px 0 0; }
+    li { padding:10px 0; border-top:1px solid rgba(214,201,183,.7); font-size:.94rem; word-break:break-word; }
+    li:first-child { border-top:0; padding-top:0; }
+    .list { max-height:240px; overflow:auto; padding-right:6px; }
+    .empty { color:var(--muted); margin-top:14px; }
+    .mono { font-family:"IBM Plex Mono","SFMono-Regular",monospace; font-size:.88rem; }
+    @media (max-width: 720px) {
+      .hero { flex-direction:column; }
+      .status { flex-wrap:wrap; }
+      .status-meta { margin-left:0; width:100%; }
+      .toolbar { justify-content:flex-start; }
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>Scanner Control</h1>
-    <p>Run the scanner on demand and inspect the latest persisted status without leaving Stash-style operational flow.</p>
+    <section class="hero">
+      <div>
+        <h1>Scanner Control</h1>
+        <p>Run the scanner on demand, inspect live progress, and promote queued debounce paths without digging through raw state.</p>
+      </div>
+      <div class="toolbar">
+        <button id="run-now">Run Now</button>
+        <button id="flush-debounce" class="secondary">Scan Pending Now</button>
+        <button id="stop-run" class="warn">Stop</button>
+      </div>
+    </section>
     <div class="status">
       <span id="status-dot" class="dot"></span>
       <strong id="status-text">Loading</strong>
-      <button id="run-now">Run Now</button>
-      <button id="stop-run">Stop</button>
+      <span id="status-badge" class="pill">Idle</span>
+      <div id="poll-state" class="status-meta">Waiting for first refresh</div>
     </div>
-    <section class="panel">
-      <div class="label">Current Activity</div>
-      <div id="activity" class="value">-</div>
-      <pre id="activity-detail">-</pre>
-    </section>
     <section class="grid">
-      <article class="panel"><div class="label">Version</div><div id="version" class="value">-</div></article>
-      <article class="panel"><div class="label">Mode</div><div id="mode" class="value">-</div></article>
-      <article class="panel"><div class="label">Last Run</div><div id="last-run" class="value">-</div></article>
-      <article class="panel"><div class="label">Pending Paths</div><div id="pending-count" class="value">-</div></article>
-      <article class="panel"><div class="label">Last Outcome</div><div id="last-outcome" class="value">-</div></article>
+      <article class="panel"><div class="label">Version</div><div id="version" class="value">-</div><div id="mode" class="subvalue">-</div></article>
+      <article class="panel"><div class="label">Last Run</div><div id="last-run" class="value">-</div><div id="last-run-detail" class="subvalue">No completed runs yet</div></article>
+      <article class="panel"><div class="label">Pending Paths</div><div id="pending-count" class="value">-</div><div id="pending-detail" class="subvalue">No queued work</div></article>
+      <article class="panel"><div class="label">Last Outcome</div><div id="last-outcome" class="value">-</div><div id="last-error" class="subvalue">-</div></article>
     </section>
-    <section class="grid">
-      <article class="panel"><div class="label">Stash Task</div><pre id="stash-task">-</pre></article>
-      <article class="panel"><div class="label">Current Run</div><pre id="current-run">-</pre></article>
-      <article class="panel"><div class="label">Pending Debounce</div><pre id="pending-debounce">-</pre></article>
-      <article class="panel"><div class="label">Pending Retry</div><pre id="pending-retry">-</pre></article>
-      <article class="panel"><div class="label">Watch Roots</div><pre id="watch-roots">-</pre></article>
-      <article class="panel"><div class="label">Last Summary</div><pre id="last-summary">-</pre></article>
+    <section class="grid two">
+      <article class="panel stack">
+        <div>
+          <div class="label">Current Activity</div>
+          <div id="activity" class="value">-</div>
+          <div id="activity-detail" class="subvalue">-</div>
+        </div>
+        <div class="kv">
+          <div class="row"><strong>Trigger</strong><span id="current-trigger">-</span></div>
+          <div class="row"><strong>Started</strong><span id="current-started">-</span></div>
+          <div class="row"><strong>Updated</strong><span id="current-updated">-</span></div>
+        </div>
+      </article>
+      <article class="panel stack">
+        <div>
+          <div class="label">Stash Task</div>
+          <div id="stash-task-title" class="value">No Active Task</div>
+          <div id="stash-task-detail" class="subvalue">Waiting for scanner work</div>
+          <div class="meter"><span id="stash-task-progress"></span></div>
+        </div>
+        <div class="kv">
+          <div class="row"><strong>Task ID</strong><span id="stash-task-id" class="mono">-</span></div>
+          <div class="row"><strong>Status</strong><span id="stash-task-status">-</span></div>
+          <div class="row"><strong>Started</strong><span id="stash-task-started">-</span></div>
+          <div class="row"><strong>Ended</strong><span id="stash-task-ended">-</span></div>
+        </div>
+      </article>
+    </section>
+    <section class="grid three">
+      <article class="panel">
+        <div class="label">Pending Debounce</div>
+        <div id="pending-debounce-count" class="value">-</div>
+        <div id="pending-debounce-meta" class="subvalue">-</div>
+        <ul id="pending-debounce" class="list"></ul>
+        <div id="pending-debounce-empty" class="empty">No debounced paths</div>
+      </article>
+      <article class="panel">
+        <div class="label">Pending Retry</div>
+        <div id="pending-retry-count" class="value">-</div>
+        <div id="pending-retry-meta" class="subvalue">-</div>
+        <ul id="pending-retry" class="list"></ul>
+        <div id="pending-retry-empty" class="empty">No retry backlog</div>
+      </article>
+      <article class="panel">
+        <div class="label">Watch Roots</div>
+        <div id="watch-roots-count" class="value">-</div>
+        <div id="watch-roots-meta" class="subvalue">-</div>
+        <ul id="watch-roots" class="list"></ul>
+        <div id="watch-roots-empty" class="empty">No watch roots configured</div>
+      </article>
+    </section>
+    <section class="grid two">
+      <article class="panel">
+        <div class="label">Last Run Summary</div>
+        <ul id="last-summary" class="list"></ul>
+        <div id="last-summary-empty" class="empty">No summary yet</div>
+      </article>
     </section>
   </main>
   <script src="/ui/app.js"></script>
