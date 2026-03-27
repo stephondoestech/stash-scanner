@@ -67,6 +67,12 @@ make run-ui
 http://127.0.0.1:8088/
 ```
 
+## First Run Warning
+
+Before the first real scanner run, make sure your Stash instance has recently scanned the same library paths and already knows about the files on disk.
+
+The scanner builds its initial baseline from the filesystem, not from Stash. If files exist on disk but are missing from Stash during that first run, those files can be written into the scanner state without being revisited on later runs unless they change again.
+
 ## Unraid
 
 For Unraid, the recommended pattern is:
@@ -151,4 +157,5 @@ API:
 
 ## Known Issues
 
-Current state file grows with the size of the Stash instance so it can easily exceed 1 GB or more. Will work on solving this in a future release. 
+- Current state file grows with the size of the Stash instance so it can easily exceed 1 GB or more. Will work on solving this in a future release. 
+- If the first run happened before Stash was fully up to date, files may exist in the scanner state but still be missing from Stash. To recover, delete the relevant entries from the state file so the scanner can rediscover them, or run a Stash scan that covers those paths directly.
