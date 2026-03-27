@@ -128,3 +128,8 @@ API:
 - `dry_run=true` means the scanner logs what it would do but does not send a real scan request to Stash.
 - `dry_run=false` sends real `metadataScan` requests to Stash.
 - if the control port cannot bind, the app either uses `control.fallback_bind` or exits with a clear error.
+
+## Project Notes
+
+- commit messages should follow the Commitizen / Conventional Commits style used by this repo
+- this project was built with assistance from OpenAI Codex for transparency
