@@ -19,10 +19,6 @@ func New(interval time.Duration, dailyTime string) *Scheduler {
 }
 
 func (s *Scheduler) Run(ctx context.Context, run func(context.Context) error) error {
-	if err := run(ctx); err != nil {
-		return err
-	}
-
 	for {
 		wait, err := s.nextWait(time.Now())
 		if err != nil {

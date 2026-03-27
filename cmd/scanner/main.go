@@ -6,22 +6,26 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"stash-scanner/internal/app"
 	"stash-scanner/internal/config"
 	"stash-scanner/internal/control"
 	"stash-scanner/internal/logging"
+	"stash-scanner/internal/state"
 )
 
 func main() {
 	var (
-		configPath string
-		runOnce    bool
+		configPath   string
+		runOnce      bool
+		requeuePaths string
 	)
 
 	flag.StringVar(&configPath, "config", "", "Path to the JSON config file")
 	flag.BoolVar(&runOnce, "once", false, "Run a single scan cycle and exit")
+	flag.StringVar(&requeuePaths, "requeue-paths", "", "Comma-separated tracked paths to remove from state so they will be rediscovered on the next run")
 	flag.Parse()
 
 	cfg, err := config.Load(configPath)
@@ -41,6 +45,16 @@ func main() {
 		"control_bind", cfg.Control.Bind,
 		"control_fallback_bind", cfg.Control.FallbackBind,
 	)
+
+	if strings.TrimSpace(requeuePaths) != "" {
+		store := state.NewStore(cfg.StatePath)
+		removed, err := store.RequeuePaths(strings.Split(requeuePaths, ","))
+		if err != nil {
+			log.Fatalf("requeue paths: %v", err)
+		}
+		log.Printf("requeued %d tracked entries from %s", removed, cfg.StatePath)
+		return
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

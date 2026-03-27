@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -28,11 +29,12 @@ type Runner struct {
 	now       func() time.Time
 	pollEvery time.Duration
 
-	mu          sync.RWMutex
-	running     bool
-	cancelRun   context.CancelFunc
-	currentRun  RunState
-	lastSummary RunSummary
+	mu            sync.RWMutex
+	running       bool
+	flushDebounce bool
+	cancelRun     context.CancelFunc
+	currentRun    RunState
+	lastSummary   RunSummary
 }
 
 type scanClient interface {
@@ -56,7 +58,7 @@ func NewRunner(cfg config.Config, logger *log.Logger) (*Runner, error) {
 		client:    stash.NewClient(cfg.StashURL, cfg.APIKey, cfg.DryRun),
 		scheduler: scheduler.New(cfg.Schedule.Interval.Duration, cfg.Schedule.DailyTime),
 		now:       func() time.Time { return time.Now().UTC() },
-		pollEvery: 3 * time.Second,
+		pollEvery: 10 * time.Second,
 	}, nil
 }
 
@@ -155,7 +157,13 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	logging.DebugEvent(r.logger, "watch_roots_list", "roots", roots)
 
 	r.updateRunProgress("scanning_files", fmt.Sprintf("Scanning %d watch roots", len(roots)))
-	result, err := r.detector.Scan(ctx, roots, st.Paths)
+	result, err := r.detector.ScanWithProgress(ctx, roots, st.Paths, func(progress detect.Progress) {
+		rootName := filepath.Base(progress.Root)
+		if rootName == "." || rootName == string(filepath.Separator) || rootName == "" {
+			rootName = progress.Root
+		}
+		r.updateRunProgress("scanning_files", fmt.Sprintf("Scanning %s (%d files seen)", rootName, progress.FilesSeen))
+	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			summary.Stopped = true
@@ -177,6 +185,10 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		"pending_targets", summary.PendingTargets,
 	)
 	logging.DebugEvent(r.logger, "pending_debounce_paths", "paths", st.PendingDebounce.Paths, "ready_at", st.PendingDebounce.ReadyAt.Format(time.RFC3339))
+	if r.consumeDebounceFlush() && len(st.PendingDebounce.Paths) > 0 {
+		st.PendingDebounce.ReadyAt = summary.StartedAt
+		logging.Event(r.logger, "debounce_flush_requested", "pending_paths", len(st.PendingDebounce.Paths))
+	}
 
 	debounceTargets, debounceDeferred := r.resolveDebounceTargets(st.PendingDebounce, summary.StartedAt)
 	scanTargets, retryAttempt, retryDeferred := r.resolveScanTargets(debounceTargets, st.PendingScan, summary.StartedAt)
@@ -230,6 +242,13 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 			return fmt.Errorf("trigger scan: %w", err)
 		}
 		summary.StashTask.ID = jobID
+		if jobID != "" {
+			r.updateRunTask(StashTaskStatus{
+				ID:          jobID,
+				Status:      "QUEUED",
+				Description: "Metadata scan queued",
+			})
+		}
 		logging.Event(r.logger, "scan_request_accepted", "targets", len(scanTargets), "job_id", jobID)
 		if jobID != "" {
 			r.updateRunProgress("waiting_for_stash", fmt.Sprintf("Waiting for Stash task %s", jobID))
@@ -333,4 +352,20 @@ func (r *Runner) setRunCancel(cancel context.CancelFunc) {
 		return
 	}
 	r.cancelRun = cancel
+}
+
+func (r *Runner) requestDebounceFlush() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.flushDebounce = true
+}
+
+func (r *Runner) consumeDebounceFlush() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.flushDebounce {
+		return false
+	}
+	r.flushDebounce = false
+	return true
 }

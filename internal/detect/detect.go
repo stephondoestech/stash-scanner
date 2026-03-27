@@ -23,6 +23,12 @@ type Result struct {
 	FinishedAt time.Time
 }
 
+type Progress struct {
+	Root      string
+	FilesSeen int
+	Path      string
+}
+
 func New(includePatterns, excludePatterns []string) *Detector {
 	return &Detector{
 		includePatterns: includePatterns,
@@ -31,9 +37,18 @@ func New(includePatterns, excludePatterns []string) *Detector {
 }
 
 func (d *Detector) Scan(ctx context.Context, roots []string, previous map[string]state.PathState) (Result, error) {
+	return d.scan(ctx, roots, previous, nil)
+}
+
+func (d *Detector) ScanWithProgress(ctx context.Context, roots []string, previous map[string]state.PathState, progress func(Progress)) (Result, error) {
+	return d.scan(ctx, roots, previous, progress)
+}
+
+func (d *Detector) scan(ctx context.Context, roots []string, previous map[string]state.PathState, progress func(Progress)) (Result, error) {
 	current := make(map[string]state.PathState)
 	changedDirs := map[string]struct{}{}
 	now := time.Now().UTC()
+	filesSeen := 0
 
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
@@ -66,6 +81,14 @@ func (d *Detector) Scan(ctx context.Context, roots []string, previous map[string
 
 			if !exists || prev.Size != info.Size() || !prev.ModifiedAt.Equal(info.ModTime().UTC()) {
 				changedDirs[filepath.Dir(path)] = struct{}{}
+			}
+			filesSeen++
+			if progress != nil && (filesSeen == 1 || filesSeen%250 == 0) {
+				progress(Progress{
+					Root:      root,
+					FilesSeen: filesSeen,
+					Path:      path,
+				})
 			}
 
 			return nil
