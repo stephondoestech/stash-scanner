@@ -1,0 +1,17 @@
+services:
+  scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stash-scanner:dev
+    env_file:
+      - .env
+    environment:
+      STASH_SCANNER_CONTROL_BIND: 0.0.0.0:8088
+    ports:
+      - "8088:8088"
+    volumes:
+      # Unraid-friendly writable state location.
+      - /mnt/user/appdata/stash-scanner:/app/data
+      # Mount the same media path Stash reports in configuration.general.stashes[].path.
+      - /mnt/user/data:/mnt/user/data:ro

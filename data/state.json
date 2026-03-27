@@ -1,0 +1,237 @@
+{
+  "paths": {
+    ".DS_Store": {
+      "path": ".DS_Store",
+      "size": 6148,
+      "modified_at": "2026-03-24T15:49:05.160655783Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    ".dockerignore": {
+      "path": ".dockerignore",
+      "size": 66,
+      "modified_at": "2026-03-27T00:23:01.232040926Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "AGENTS.md": {
+      "path": "AGENTS.md",
+      "size": 2408,
+      "modified_at": "2026-03-27T00:05:59.982164221Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "Dockerfile": {
+      "path": "Dockerfile",
+      "size": 360,
+      "modified_at": "2026-03-27T00:23:01.231897218Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "LICENSE": {
+      "path": "LICENSE",
+      "size": 1071,
+      "modified_at": "2026-03-27T00:12:35.726072961Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "MEMORIES.md": {
+      "path": "MEMORIES.md",
+      "size": 908,
+      "modified_at": "2026-03-27T00:50:30.097700566Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "Makefile": {
+      "path": "Makefile",
+      "size": 643,
+      "modified_at": "2026-03-27T00:50:22.885029194Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "PLANS.md": {
+      "path": "PLANS.md",
+      "size": 1401,
+      "modified_at": "2026-03-27T00:41:25.070091669Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "README.md": {
+      "path": "README.md",
+      "size": 4854,
+      "modified_at": "2026-03-27T00:50:30.097492065Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "cmd/scanner/main.go": {
+      "path": "cmd/scanner/main.go",
+      "size": 1471,
+      "modified_at": "2026-03-27T00:50:47.020108383Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "data/state.json": {
+      "path": "data/state.json",
+      "size": 8995,
+      "modified_at": "2026-03-27T00:51:21.889647648Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "docker-compose.example.yml": {
+      "path": "docker-compose.example.yml",
+      "size": 510,
+      "modified_at": "2026-03-27T00:42:39.929892091Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "go.mod": {
+      "path": "go.mod",
+      "size": 32,
+      "modified_at": "2026-03-27T00:14:13.33889464Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/app/app_test.go": {
+      "path": "internal/app/app_test.go",
+      "size": 4064,
+      "modified_at": "2026-03-27T00:33:59.173718521Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/app/retry.go": {
+      "path": "internal/app/retry.go",
+      "size": 2135,
+      "modified_at": "2026-03-27T00:39:46.95946026Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/app/runner.go": {
+      "path": "internal/app/runner.go",
+      "size": 4350,
+      "modified_at": "2026-03-27T00:39:46.959335427Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/app/status.go": {
+      "path": "internal/app/status.go",
+      "size": 3254,
+      "modified_at": "2026-03-27T00:39:46.959544302Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/config/config.go": {
+      "path": "internal/config/config.go",
+      "size": 5587,
+      "modified_at": "2026-03-27T00:40:48.057931487Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/config/config_test.go": {
+      "path": "internal/config/config_test.go",
+      "size": 2971,
+      "modified_at": "2026-03-27T00:33:53.850848077Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/control/server.go": {
+      "path": "internal/control/server.go",
+      "size": 3068,
+      "modified_at": "2026-03-27T00:50:19.65343994Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/control/server_test.go": {
+      "path": "internal/control/server_test.go",
+      "size": 1741,
+      "modified_at": "2026-03-27T00:41:25.06952846Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/control/ui/app.js": {
+      "path": "internal/control/ui/app.js",
+      "size": 2318,
+      "modified_at": "2026-03-27T00:40:48.058489404Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/control/ui/index.html": {
+      "path": "internal/control/ui/index.html",
+      "size": 3119,
+      "modified_at": "2026-03-27T00:40:48.058414154Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/detect/detect.go": {
+      "path": "internal/detect/detect.go",
+      "size": 2968,
+      "modified_at": "2026-03-27T00:16:39.284329371Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/detect/detect_test.go": {
+      "path": "internal/detect/detect_test.go",
+      "size": 1915,
+      "modified_at": "2026-03-27T00:21:05.458772445Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/scheduler/scheduler.go": {
+      "path": "internal/scheduler/scheduler.go",
+      "size": 1208,
+      "modified_at": "2026-03-27T00:21:15.83044437Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/scheduler/scheduler_test.go": {
+      "path": "internal/scheduler/scheduler_test.go",
+      "size": 1070,
+      "modified_at": "2026-03-27T00:21:05.458859237Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/stash/client.go": {
+      "path": "internal/stash/client.go",
+      "size": 4008,
+      "modified_at": "2026-03-27T00:27:33.659869043Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/stash/client_test.go": {
+      "path": "internal/stash/client_test.go",
+      "size": 3054,
+      "modified_at": "2026-03-27T00:29:11.852366048Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/state/store.go": {
+      "path": "internal/state/store.go",
+      "size": 1905,
+      "modified_at": "2026-03-27T00:33:59.173720312Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "internal/state/store_test.go": {
+      "path": "internal/state/store_test.go",
+      "size": 2301,
+      "modified_at": "2026-03-27T00:33:59.174113771Z",
+      "first_seen_at": "2026-03-27T00:41:55.416633Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    },
+    "plan.md": {
+      "path": "plan.md",
+      "size": 4368,
+      "modified_at": "2026-03-23T22:45:16.391625473Z",
+      "first_seen_at": "2026-03-27T00:19:47.813657Z",
+      "last_seen_at": "2026-03-27T00:51:26.267674Z"
+    }
+  },
+  "pending_scan": {
+    "paths": null,
+    "attempt_count": 0,
+    "first_failed_at": "0001-01-01T00:00:00Z",
+    "last_failed_at": "0001-01-01T00:00:00Z",
+    "next_attempt_at": "0001-01-01T00:00:00Z"
+  },
+  "last_run_at": "2026-03-27T00:51:26.267674Z",
+  "last_success_at": "2026-03-27T00:51:26.267674Z"
+}

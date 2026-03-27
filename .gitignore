@@ -1,0 +1,23 @@
+.DS_Store
+
+# Editor directories and temp files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local environment files
+.env
+
+# Go build and test outputs
+.cache/
+bin/
+dist/
+coverage.out
+*.coverprofile
+*.test
+MEMORIES.md
+PLANS.md
+plan.md
+AGENTS.md

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stash Scanner Control</title>
+  <style>
+    :root { color-scheme: light; --bg:#f4efe6; --panel:#fffdf8; --ink:#1f1d19; --muted:#6e665d; --line:#d6c9b7; --accent:#176b5d; --warn:#8c4f1c; font-family: "IBM Plex Sans", "Avenir Next", sans-serif; }
+    body { margin:0; background:linear-gradient(160deg,#efe4d2,#f8f5ee 55%,#e2eee8); color:var(--ink); }
+    main { max-width:960px; margin:0 auto; padding:32px 20px 48px; }
+    h1 { margin:0 0 8px; font-size:2.2rem; letter-spacing:-0.04em; }
+    p { color:var(--muted); }
+    .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); margin:24px 0; }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:18px; padding:18px; box-shadow:0 10px 30px rgba(31,29,25,.07); }
+    .label { font-size:.82rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+    .value { margin-top:8px; font-size:1.6rem; font-weight:700; }
+    button { border:0; border-radius:999px; background:var(--accent); color:#fff; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; }
+    button[disabled] { opacity:.55; cursor:not-allowed; }
+    pre { white-space:pre-wrap; word-break:break-word; font-size:.92rem; line-height:1.45; margin:0; }
+    .status { display:flex; gap:12px; align-items:center; margin:20px 0; }
+    .dot { width:12px; height:12px; border-radius:50%; background:#b3a48f; }
+    .dot.live { background:var(--accent); box-shadow:0 0 0 8px rgba(23,107,93,.12); }
+    .dot.warn { background:var(--warn); box-shadow:0 0 0 8px rgba(140,79,28,.12); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Scanner Control</h1>
+    <p>Run the scanner on demand and inspect the latest persisted status without leaving Stash-style operational flow.</p>
+    <div class="status">
+      <span id="status-dot" class="dot"></span>
+      <strong id="status-text">Loading</strong>
+      <button id="run-now">Run Now</button>
+    </div>
+    <section class="grid">
+      <article class="panel"><div class="label">Version</div><div id="version" class="value">-</div></article>
+      <article class="panel"><div class="label">Mode</div><div id="mode" class="value">-</div></article>
+      <article class="panel"><div class="label">Last Run</div><div id="last-run" class="value">-</div></article>
+      <article class="panel"><div class="label">Pending Paths</div><div id="pending-count" class="value">-</div></article>
+      <article class="panel"><div class="label">Last Outcome</div><div id="last-outcome" class="value">-</div></article>
+    </section>
+    <section class="grid">
+      <article class="panel"><div class="label">Current Run</div><pre id="current-run">-</pre></article>
+      <article class="panel"><div class="label">Pending Retry</div><pre id="pending-retry">-</pre></article>
+      <article class="panel"><div class="label">Watch Roots</div><pre id="watch-roots">-</pre></article>
+      <article class="panel"><div class="label">Last Summary</div><pre id="last-summary">-</pre></article>
+    </section>
+  </main>
+  <script src="/ui/app.js"></script>
+</body>
+</html>
