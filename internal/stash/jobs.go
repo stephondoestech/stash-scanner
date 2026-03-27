@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"stash-scanner/internal/logging"
 )
 
 type Job struct {
@@ -46,7 +48,7 @@ func (c *Client) StopJob(ctx context.Context, id string) error {
 	}
 
 	if c.dryRun {
-		c.logger.Printf("dry-run: would stop Stash job %s", id)
+		logging.Event(c.logger, "stash_stop_dry_run", "job_id", id)
 		return nil
 	}
 
@@ -63,7 +65,7 @@ func (c *Client) StopJob(ctx context.Context, id string) error {
 		return fmt.Errorf("stash did not stop job %s", id)
 	}
 
-	c.logger.Printf("requested stop for Stash job %s", id)
+	logging.Event(c.logger, "stash_stop_requested", "job_id", id)
 	return nil
 }
 

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"time"
 
+	"stash-scanner/internal/logging"
 	"stash-scanner/internal/stash"
 )
 
 func (r *Runner) waitForJob(ctx context.Context, jobID string) (StashTaskStatus, error) {
+	lastStatus := ""
 	for {
 		task, err := r.client.FindJob(ctx, jobID)
 		if err != nil {
@@ -18,6 +20,17 @@ func (r *Runner) waitForJob(ctx context.Context, jobID string) (StashTaskStatus,
 		status := toTaskStatus(task)
 		r.updateRunTask(status)
 		r.updateRunProgress("waiting_for_stash", formatTaskDetail(status))
+		if status.Status != lastStatus {
+			logging.Event(
+				r.logger,
+				"stash_task_status",
+				"job_id", status.ID,
+				"status", status.Status,
+				"progress", fmt.Sprintf("%.0f%%", status.Progress*100),
+				"description", status.Description,
+			)
+			lastStatus = status.Status
+		}
 
 		switch status.Status {
 		case "FINISHED":

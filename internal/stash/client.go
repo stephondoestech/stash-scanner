@@ -12,6 +12,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"stash-scanner/internal/logging"
 )
 
 type Client struct {
@@ -74,7 +76,7 @@ func (c *Client) TriggerScan(ctx context.Context, paths []string) (string, error
 	}
 
 	if c.dryRun {
-		c.logger.Printf("dry-run: would request scans for %d paths", len(paths))
+		logging.Event(c.logger, "stash_scan_dry_run", "targets", len(paths))
 		return "", nil
 	}
 
@@ -102,11 +104,11 @@ func (c *Client) TriggerScan(ctx context.Context, paths []string) (string, error
 		return "", err
 	}
 	if jobID != "" {
-		c.logger.Printf("started Stash metadata scan for %d paths: %s", len(paths), jobID)
+		logging.Event(c.logger, "stash_scan_started", "targets", len(paths), "job_id", jobID)
 		return jobID, nil
 	}
 
-	c.logger.Printf("started Stash metadata scan for %d paths", len(paths))
+	logging.Event(c.logger, "stash_scan_started", "targets", len(paths))
 	return "", nil
 }
 

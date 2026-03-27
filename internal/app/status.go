@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"stash-scanner/internal/logging"
 	"stash-scanner/internal/state"
 	"stash-scanner/internal/version"
 )
@@ -109,28 +110,29 @@ func (r *Runner) logRunSummary(summary RunSummary, snapshot state.Snapshot) {
 		summary.FinishedAt = r.now()
 	}
 
-	r.logger.Printf(
-		"run summary: trigger=%s tracked_files=%d detected_targets=%d pending_targets=%d pending_after=%d scan_targets=%d scan_attempted=%t scan_succeeded=%t stopped=%t stash_task_id=%s stash_task_status=%s retry_attempt=%d retry_deferred=%t state_saved=%t last_run_at=%s last_success_at=%s duration=%s",
-		summary.Trigger,
-		summary.TrackedFiles,
-		summary.DetectedTargets,
-		summary.PendingTargets,
-		summary.PendingAfter,
-		summary.ScanTargets,
-		summary.ScanAttempted,
-		summary.ScanSucceeded,
-		summary.Stopped,
-		summary.StashTask.ID,
-		summary.StashTask.Status,
-		summary.RetryAttempt,
-		summary.RetryDeferred,
-		summary.StateSaved,
-		snapshot.LastRunAt.Format(time.RFC3339),
-		snapshot.LastSuccessAt.Format(time.RFC3339),
-		summary.FinishedAt.Sub(summary.StartedAt).Round(time.Millisecond),
+	logging.Event(
+		r.logger,
+		"run_finished",
+		"trigger", summary.Trigger,
+		"tracked_files", summary.TrackedFiles,
+		"detected_targets", summary.DetectedTargets,
+		"pending_targets", summary.PendingTargets,
+		"pending_after", summary.PendingAfter,
+		"scan_targets", summary.ScanTargets,
+		"scan_attempted", summary.ScanAttempted,
+		"scan_succeeded", summary.ScanSucceeded,
+		"stopped", summary.Stopped,
+		"stash_task_id", summary.StashTask.ID,
+		"stash_task_status", summary.StashTask.Status,
+		"retry_attempt", summary.RetryAttempt,
+		"retry_deferred", summary.RetryDeferred,
+		"state_saved", summary.StateSaved,
+		"last_run_at", snapshot.LastRunAt.Format(time.RFC3339),
+		"last_success_at", snapshot.LastSuccessAt.Format(time.RFC3339),
+		"duration", summary.FinishedAt.Sub(summary.StartedAt).Round(time.Millisecond),
 	)
 	if summary.LastError != "" {
-		r.logger.Printf("run error: %s", summary.LastError)
+		logging.Event(r.logger, "run_error", "trigger", summary.Trigger, "error", summary.LastError)
 	}
 }
 

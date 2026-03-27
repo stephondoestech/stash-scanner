@@ -19,6 +19,7 @@ const els = {
 
 function fmt(value) {
   if (!value) return "-";
+  if (value === "0001-01-01T00:00:00Z") return "-";
   return new Date(value).toLocaleString();
 }
 

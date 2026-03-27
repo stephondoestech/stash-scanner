@@ -10,6 +10,7 @@ import (
 
 	"stash-scanner/internal/config"
 	"stash-scanner/internal/detect"
+	"stash-scanner/internal/logging"
 	"stash-scanner/internal/scheduler"
 	"stash-scanner/internal/stash"
 	"stash-scanner/internal/state"
@@ -59,11 +60,19 @@ func NewRunner(cfg config.Config, logger *log.Logger) (*Runner, error) {
 }
 
 func (r *Runner) Run(ctx context.Context) error {
-	r.logger.Printf("service started with %d watch roots", len(r.cfg.WatchRoots))
+	logging.Event(
+		r.logger,
+		"service_started",
+		"watch_roots", len(r.cfg.WatchRoots),
+		"watch_roots_from_stash", r.cfg.WatchRootsFromStash,
+		"dry_run", r.cfg.DryRun,
+		"interval", r.cfg.Schedule.Interval.Duration,
+		"daily_time", r.cfg.Schedule.DailyTime,
+	)
 	return r.scheduler.Run(ctx, func(runCtx context.Context) error {
 		err := r.runCycle(runCtx, "scheduled")
 		if errors.Is(err, ErrRunInProgress) {
-			r.logger.Printf("scheduled run skipped: %v", err)
+			logging.Event(r.logger, "run_skipped", "trigger", "scheduled", "reason", err)
 			return nil
 		}
 		return err
@@ -85,10 +94,10 @@ func (r *Runner) StartManualRun() error {
 		defer cancel()
 		if err := r.runCycleWithLock(runCtx, "manual"); err != nil {
 			if errors.Is(err, context.Canceled) {
-				r.logger.Printf("manual run stopped")
+				logging.Event(r.logger, "manual_run_stopped")
 				return
 			}
-			r.logger.Printf("manual run failed: %v", err)
+			logging.Event(r.logger, "manual_run_failed", "error", err)
 		}
 	}()
 	return nil
@@ -113,6 +122,8 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		r.finishRun(summary, finalSnapshot)
 	}()
 
+	logging.Event(r.logger, "run_started", "trigger", trigger)
+
 	st, err := r.store.Load()
 	if err != nil {
 		summary.LastError = err.Error()
@@ -130,6 +141,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		summary.LastError = err.Error()
 		return fmt.Errorf("resolve watch roots: %w", err)
 	}
+	logging.Event(r.logger, "watch_roots_resolved", "trigger", trigger, "count", len(roots))
 
 	r.updateRunProgress("scanning_files", fmt.Sprintf("Scanning %d watch roots", len(roots)))
 	result, err := r.detector.Scan(ctx, roots, st.Paths)
@@ -144,6 +156,14 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	summary.TrackedFiles = len(result.Current)
 	summary.DetectedTargets = len(result.Targets)
 	summary.PendingTargets = len(st.PendingScan.Paths)
+	logging.Event(
+		r.logger,
+		"changes_detected",
+		"trigger", trigger,
+		"tracked_files", summary.TrackedFiles,
+		"detected_targets", summary.DetectedTargets,
+		"pending_targets", summary.PendingTargets,
+	)
 
 	scanTargets, retryAttempt, retryDeferred := r.resolveScanTargets(result.Targets, st.PendingScan, summary.StartedAt)
 	summary.ScanTargets = len(scanTargets)
@@ -153,11 +173,19 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	if retryDeferred {
 		r.updateRunProgress("waiting_retry", "Retry deferred until backoff expires")
 		st.PendingScan.Paths = uniqueSorted(append(st.PendingScan.Paths, result.Targets...))
+		logging.Event(
+			r.logger,
+			"scan_retry_deferred",
+			"pending_after", len(st.PendingScan.Paths),
+			"next_attempt_at", st.PendingScan.NextAttemptAt.Format(time.RFC3339),
+			"attempt", retryAttempt,
+		)
 	}
 
 	if len(scanTargets) > 0 && !retryDeferred {
 		summary.ScanAttempted = true
 		r.updateRunProgress("triggering_scan", fmt.Sprintf("Requesting Stash scan for %d path targets", len(scanTargets)))
+		logging.Event(r.logger, "scan_request_started", "targets", len(scanTargets), "attempt", retryAttempt)
 		jobID, err := r.client.TriggerScan(ctx, scanTargets)
 		if err != nil {
 			summary.LastError = err.Error()
@@ -175,6 +203,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 			return fmt.Errorf("trigger scan: %w", err)
 		}
 		summary.StashTask.ID = jobID
+		logging.Event(r.logger, "scan_request_accepted", "targets", len(scanTargets), "job_id", jobID)
 		if jobID != "" {
 			r.updateRunProgress("waiting_for_stash", fmt.Sprintf("Waiting for Stash task %s", jobID))
 			task, waitErr := r.waitForJob(ctx, jobID)
@@ -204,6 +233,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		st.PendingScan = state.PendingScan{}
 	} else if len(scanTargets) == 0 {
 		r.updateRunProgress("idle", "No changed scan targets found")
+		logging.Event(r.logger, "scan_skipped", "reason", "no_changed_targets")
 	}
 
 	st.Paths = result.Current

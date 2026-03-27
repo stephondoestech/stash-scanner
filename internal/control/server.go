@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"stash-scanner/internal/app"
+	"stash-scanner/internal/logging"
 )
 
 //go:embed ui/*
@@ -77,7 +78,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		s.logger.Printf("control server listening on %s", s.http.Addr)
+		logging.Event(s.logger, "control_listening", "bind", s.http.Addr)
 		err := s.http.Serve(result.listener)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
@@ -109,7 +110,7 @@ func (s *Server) listen() (net.Listener, string, error) {
 
 	fallbackListener, fallbackErr := net.Listen("tcp", s.fallbackAddr)
 	if fallbackErr == nil {
-		s.logger.Printf("control bind %s failed, falling back to %s: %v", s.addr, s.fallbackAddr, primaryErr)
+		logging.Event(s.logger, "control_fallback_bind", "bind", s.addr, "fallback_bind", s.fallbackAddr, "error", primaryErr)
 		return fallbackListener, s.fallbackAddr, nil
 	}
 

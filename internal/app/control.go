@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"stash-scanner/internal/logging"
 )
 
 var ErrNoRunInProgress = errors.New("no active scan run")
@@ -21,6 +23,8 @@ func (r *Runner) StopActiveRun(ctx context.Context) error {
 	r.currentRun.Detail = "Stopping active scan run"
 	r.currentRun.UpdatedAt = r.now()
 	r.mu.Unlock()
+
+	logging.Event(r.logger, "stop_requested", "stash_task_id", taskID)
 
 	if cancel != nil {
 		cancel()

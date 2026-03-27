@@ -16,7 +16,9 @@ WORKDIR /app
 COPY --from=build /out/scanner /usr/local/bin/scanner
 COPY VERSION /app/VERSION
 
-RUN mkdir -p /app/data
+RUN mkdir -p /config
+
+ENV STASH_SCANNER_STATE_PATH=/config/state.json
 
 ENTRYPOINT ["/usr/local/bin/scanner"]
 CMD []

@@ -11,6 +11,7 @@ import (
 	"stash-scanner/internal/app"
 	"stash-scanner/internal/config"
 	"stash-scanner/internal/control"
+	"stash-scanner/internal/logging"
 )
 
 func main() {
@@ -59,13 +60,16 @@ func main() {
 
 	select {
 	case err := <-runErrCh:
+		logging.Event(log.Default(), "service_exit", "component", "scanner", "error", err)
 		log.Fatalf("run: %v", err)
 	case err := <-controlErrCh:
 		if err != nil {
 			cancel()
+			logging.Event(log.Default(), "service_exit", "component", "control", "error", err)
 			log.Fatalf("control server stopped: %v", err)
 		}
 		cancel()
+		logging.Event(log.Default(), "service_exit", "component", "control")
 		log.Fatalf("control server stopped")
 	}
 }
