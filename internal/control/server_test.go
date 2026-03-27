@@ -62,6 +62,34 @@ func TestRunNowHandlerReturnsConflictWhenBusy(t *testing.T) {
 	}
 }
 
+func TestStopHandlerReturnsAccepted(t *testing.T) {
+	server := New("127.0.0.1:0", "", &fakeRunner{}, log.New(io.Discard, "", 0))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+
+	if !strings.Contains(rec.Body.String(), "stopping") {
+		t.Fatalf("expected stopping body, got %q", rec.Body.String())
+	}
+}
+
+func TestStopHandlerReturnsConflictWhenIdle(t *testing.T) {
+	server := New("127.0.0.1:0", "", &fakeRunner{stopErr: app.ErrNoRunInProgress}, log.New(io.Discard, "", 0))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/stop", nil)
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusConflict; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+}
+
 func TestFormatBindErrorAddressInUse(t *testing.T) {
 	err := formatBindError("127.0.0.1:8088", syscall.EADDRINUSE)
 	if !strings.Contains(err.Error(), "address already in use") {
@@ -84,8 +112,9 @@ func TestFormatBindErrorGeneric(t *testing.T) {
 }
 
 type fakeRunner struct {
-	status app.Status
-	runErr error
+	status  app.Status
+	runErr  error
+	stopErr error
 }
 
 func (f *fakeRunner) Status(context.Context) (app.Status, error) {
@@ -94,4 +123,8 @@ func (f *fakeRunner) Status(context.Context) (app.Status, error) {
 
 func (f *fakeRunner) StartManualRun() error {
 	return f.runErr
+}
+
+func (f *fakeRunner) StopActiveRun(context.Context) error {
+	return f.stopErr
 }

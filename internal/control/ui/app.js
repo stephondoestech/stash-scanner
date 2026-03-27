@@ -6,6 +6,7 @@ const els = {
   lastOutcome: document.getElementById("last-outcome"),
   activity: document.getElementById("activity"),
   activityDetail: document.getElementById("activity-detail"),
+  stashTask: document.getElementById("stash-task"),
   currentRun: document.getElementById("current-run"),
   pendingRetry: document.getElementById("pending-retry"),
   watchRoots: document.getElementById("watch-roots"),
@@ -13,6 +14,7 @@ const els = {
   statusDot: document.getElementById("status-dot"),
   statusText: document.getElementById("status-text"),
   runNow: document.getElementById("run-now"),
+  stopRun: document.getElementById("stop-run"),
 };
 
 function fmt(value) {
@@ -25,14 +27,16 @@ function render(status) {
   const last = status.last_run || {};
   const pending = status.pending_scan || {};
   const current = status.current_run || {};
+  const task = current.stash_task || last.stash_task || {};
 
   els.version.textContent = status.version || "dev";
   els.mode.textContent = status.dry_run ? "Dry Run" : "Live";
   els.lastRun.textContent = fmt(status.last_run_at);
   els.pendingCount.textContent = String((pending.paths || []).length);
-  els.lastOutcome.textContent = last.scan_succeeded ? "Success" : (last.last_error ? "Failed" : "Idle");
+  els.lastOutcome.textContent = last.stopped ? "Stopped" : (last.scan_succeeded ? "Success" : (last.last_error ? "Failed" : "Idle"));
   els.activity.textContent = running ? humanPhase(current.phase) : "Idle";
   els.activityDetail.textContent = running ? formatCurrentRun(current) : "No active run";
+  els.stashTask.textContent = formatTask(task);
   els.currentRun.textContent = running ? JSON.stringify(status.current_run, null, 2) : "No active run";
   els.pendingRetry.textContent = JSON.stringify(pending, null, 2);
   els.watchRoots.textContent = (status.watch_roots || []).join("\n") || "-";
@@ -40,6 +44,7 @@ function render(status) {
   els.statusText.textContent = running ? (current.detail || "Run in progress") : (last.last_error ? "Waiting for retry" : "Ready");
   els.statusDot.className = "dot" + (running ? " live" : (last.last_error ? " warn" : ""));
   els.runNow.disabled = running;
+  els.stopRun.disabled = !running;
 }
 
 function humanPhase(phase) {
@@ -50,6 +55,8 @@ function humanPhase(phase) {
     case "triggering_scan": return "Triggering Stash";
     case "waiting_retry": return "Waiting To Retry";
     case "saving_state": return "Saving State";
+    case "waiting_for_stash": return "Waiting For Stash";
+    case "stopping": return "Stopping";
     case "completed": return "Completed";
     case "idle": return "Idle";
     default: return "Working";
@@ -66,6 +73,21 @@ function formatCurrentRun(current) {
   return lines.join("\n") || "Run in progress";
 }
 
+function formatTask(task) {
+  if (!task || !task.id) return "No active Stash task";
+  const lines = [];
+  lines.push(`ID: ${task.id}`);
+  if (task.description) lines.push(`Task: ${task.description}`);
+  if (task.status) lines.push(`Status: ${task.status}`);
+  if (typeof task.progress === "number" && task.progress > 0) {
+    lines.push(`Progress: ${Math.round(task.progress * 100)}%`);
+  }
+  if (task.started_at) lines.push(`Started: ${fmt(task.started_at)}`);
+  if (task.ended_at) lines.push(`Ended: ${fmt(task.ended_at)}`);
+  if (task.error) lines.push(`Error: ${task.error}`);
+  return lines.join("\n");
+}
+
 async function loadStatus() {
   const res = await fetch("/api/status");
   if (!res.ok) throw new Error(await res.text());
@@ -76,6 +98,15 @@ async function loadStatus() {
 els.runNow.addEventListener("click", async () => {
   els.runNow.disabled = true;
   const res = await fetch("/api/run-now", { method: "POST" });
+  if (!res.ok && res.status !== 409) {
+    throw new Error(await res.text());
+  }
+  await loadStatus();
+});
+
+els.stopRun.addEventListener("click", async () => {
+  els.stopRun.disabled = true;
+  const res = await fetch("/api/stop", { method: "POST" });
   if (!res.ok && res.status !== 409) {
     throw new Error(await res.text());
   }

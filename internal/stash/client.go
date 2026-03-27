@@ -68,43 +68,46 @@ func (c *Client) LibraryRoots(ctx context.Context) ([]string, error) {
 	return roots, nil
 }
 
-func (c *Client) TriggerScan(ctx context.Context, paths []string) error {
+func (c *Client) TriggerScan(ctx context.Context, paths []string) (string, error) {
 	if len(paths) == 0 {
-		return nil
+		return "", nil
 	}
 
 	if c.dryRun {
 		c.logger.Printf("dry-run: would request scans for %d paths", len(paths))
-		return nil
+		return "", nil
 	}
 
 	if c.url == "" || c.apiKey == "" {
-		return fmt.Errorf("stash_url and api_key are required when dry_run is false")
+		return "", fmt.Errorf("stash_url and api_key are required when dry_run is false")
 	}
 
 	endpoint, err := normalizeEndpoint(c.url)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	query, err := buildMetadataScanMutation(paths)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	response, err := c.executeQuery(ctx, endpoint, query)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	jobID := strings.TrimSpace(string(response.Data.MetadataScan))
-	if jobID != "" && jobID != "null" {
+	jobID, err := decodeJobID(response.Data.MetadataScan)
+	if err != nil {
+		return "", err
+	}
+	if jobID != "" {
 		c.logger.Printf("started Stash metadata scan for %d paths: %s", len(paths), jobID)
-		return nil
+		return jobID, nil
 	}
 
 	c.logger.Printf("started Stash metadata scan for %d paths", len(paths))
-	return nil
+	return "", nil
 }
 
 type gqlRequest struct {
@@ -118,6 +121,8 @@ type gqlError struct {
 type gqlResponse struct {
 	Data struct {
 		MetadataScan  json.RawMessage `json:"metadataScan"`
+		FindJob       *Job            `json:"findJob"`
+		StopJob       bool            `json:"stopJob"`
 		Configuration struct {
 			General struct {
 				Stashes []struct {
@@ -191,6 +196,18 @@ func buildMetadataScanMutation(paths []string) (string, error) {
 	return "mutation { metadataScan(input: { paths: [" + strings.Join(items, ", ") + "] }) }", nil
 }
 
+func decodeJobID(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
+
+	var jobID string
+	if err := json.Unmarshal(raw, &jobID); err != nil {
+		return "", fmt.Errorf("decode metadataScan job id: %w", err)
+	}
+	return strings.TrimSpace(jobID), nil
+}
+
 func normalizeEndpoint(raw string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -202,6 +219,11 @@ func normalizeEndpoint(raw string) (string, error) {
 
 	if parsed.Path == "" || parsed.Path == "/" {
 		parsed.Path = "/graphql"
+		return parsed.String(), nil
+	}
+
+	if strings.HasSuffix(parsed.Path, "/playground") {
+		parsed.Path = strings.TrimSuffix(parsed.Path, "/playground") + "/graphql"
 		return parsed.String(), nil
 	}
 

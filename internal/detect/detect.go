@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,13 +30,16 @@ func New(includePatterns, excludePatterns []string) *Detector {
 	}
 }
 
-func (d *Detector) Scan(roots []string, previous map[string]state.PathState) (Result, error) {
+func (d *Detector) Scan(ctx context.Context, roots []string, previous map[string]state.PathState) (Result, error) {
 	current := make(map[string]state.PathState)
 	changedDirs := map[string]struct{}{}
 	now := time.Now().UTC()
 
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if walkErr != nil {
 				return walkErr
 			}

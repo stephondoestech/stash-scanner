@@ -13,6 +13,7 @@ import (
 	"stash-scanner/internal/config"
 	"stash-scanner/internal/detect"
 	"stash-scanner/internal/scheduler"
+	"stash-scanner/internal/stash"
 	"stash-scanner/internal/state"
 )
 
@@ -47,6 +48,7 @@ func TestRunOncePersistsPendingScanOnFailure(t *testing.T) {
 		client:    client,
 		scheduler: scheduler.New(time.Minute, ""),
 		now:       func() time.Time { return now },
+		pollEvery: time.Millisecond,
 	}
 
 	err := runner.RunOnce(context.Background())
@@ -122,6 +124,7 @@ func TestRunOnceDefersRetryUntilBackoffExpires(t *testing.T) {
 		client:    client,
 		scheduler: scheduler.New(time.Minute, ""),
 		now:       func() time.Time { return now },
+		pollEvery: time.Millisecond,
 	}
 
 	if err := runner.RunOnce(context.Background()); err != nil {
@@ -142,15 +145,109 @@ func TestRunOnceDefersRetryUntilBackoffExpires(t *testing.T) {
 	}
 }
 
-type fakeClient struct {
-	roots []string
-	calls int
-	err   error
+func TestRunOnceWaitsForStashJobCompletion(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "scene.mp4")
+	if err := os.WriteFile(filePath, []byte("media"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	cfg := config.Config{
+		WatchRoots: []string{root},
+		StatePath:  filepath.Join(t.TempDir(), "state.json"),
+		Retry: config.Retry{
+			MaxAttempts:    5,
+			InitialBackoff: config.Duration{Duration: 10 * time.Second},
+			MaxBackoff:     config.Duration{Duration: time.Minute},
+		},
+		Schedule: config.Schedule{
+			Interval: config.Duration{Duration: time.Minute},
+		},
+	}
+
+	store := state.NewStore(cfg.StatePath)
+	client := &fakeClient{
+		jobID: "job-123",
+		jobs: []stash.Job{
+			{ID: "job-123", Status: "RUNNING", Description: "Scanning", Progress: 0.25},
+			{ID: "job-123", Status: "FINISHED", Description: "Scanning", Progress: 1},
+		},
+	}
+	runner := &Runner{
+		cfg:       cfg,
+		logger:    log.New(io.Discard, "", 0),
+		detector:  detect.New([]string{"*.mp4"}, nil),
+		store:     store,
+		client:    client,
+		scheduler: scheduler.New(time.Minute, ""),
+		now:       func() time.Time { return time.Date(2026, time.March, 27, 1, 0, 0, 0, time.UTC) },
+		pollEvery: time.Millisecond,
+	}
+
+	if err := runner.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	status, err := runner.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+
+	if got, want := status.LastRun.StashTask.Status, "FINISHED"; got != want {
+		t.Fatalf("stash task status mismatch: got %q want %q", got, want)
+	}
+
+	if client.findCalls < 2 {
+		t.Fatalf("expected repeated job polling, got %d polls", client.findCalls)
+	}
 }
 
-func (f *fakeClient) TriggerScan(_ context.Context, _ []string) error {
+func TestStopActiveRunStopsRemoteJob(t *testing.T) {
+	client := &fakeClient{}
+	runner := &Runner{
+		logger:  log.New(io.Discard, "", 0),
+		client:  client,
+		now:     func() time.Time { return time.Date(2026, time.March, 27, 1, 0, 0, 0, time.UTC) },
+		running: true,
+		currentRun: RunState{
+			Trigger: "manual",
+			StashTask: StashTaskStatus{
+				ID: "job-999",
+			},
+		},
+		cancelRun: func() {
+			client.cancelled = true
+		},
+	}
+
+	if err := runner.StopActiveRun(context.Background()); err != nil {
+		t.Fatalf("StopActiveRun: %v", err)
+	}
+
+	if !client.cancelled {
+		t.Fatal("expected local cancel to be invoked")
+	}
+
+	if got, want := client.stoppedJobID, "job-999"; got != want {
+		t.Fatalf("stopped job mismatch: got %q want %q", got, want)
+	}
+}
+
+type fakeClient struct {
+	roots        []string
+	calls        int
+	err          error
+	jobID        string
+	jobs         []stash.Job
+	findCalls    int
+	stopErr      error
+	stoppedJobID string
+	cancelled    bool
+}
+
+func (f *fakeClient) TriggerScan(_ context.Context, _ []string) (string, error) {
 	f.calls++
-	return f.err
+	return f.jobID, f.err
 }
 
 func (f *fakeClient) LibraryRoots(_ context.Context) ([]string, error) {
@@ -158,4 +255,22 @@ func (f *fakeClient) LibraryRoots(_ context.Context) ([]string, error) {
 		return nil, nil
 	}
 	return append([]string{}, f.roots...), nil
+}
+
+func (f *fakeClient) FindJob(_ context.Context, _ string) (stash.Job, error) {
+	f.findCalls++
+	if len(f.jobs) == 0 {
+		return stash.Job{}, errors.New("job not found")
+	}
+
+	job := f.jobs[0]
+	if len(f.jobs) > 1 {
+		f.jobs = f.jobs[1:]
+	}
+	return job, nil
+}
+
+func (f *fakeClient) StopJob(_ context.Context, id string) error {
+	f.stoppedJobID = id
+	return f.stopErr
 }

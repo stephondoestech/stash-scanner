@@ -25,16 +25,20 @@ type Runner struct {
 	client    scanClient
 	scheduler *scheduler.Scheduler
 	now       func() time.Time
+	pollEvery time.Duration
 
 	mu          sync.RWMutex
 	running     bool
+	cancelRun   context.CancelFunc
 	currentRun  RunState
 	lastSummary RunSummary
 }
 
 type scanClient interface {
-	TriggerScan(context.Context, []string) error
+	TriggerScan(context.Context, []string) (string, error)
 	LibraryRoots(context.Context) ([]string, error)
+	FindJob(context.Context, string) (stash.Job, error)
+	StopJob(context.Context, string) error
 }
 
 func NewRunner(cfg config.Config, logger *log.Logger) (*Runner, error) {
@@ -50,6 +54,7 @@ func NewRunner(cfg config.Config, logger *log.Logger) (*Runner, error) {
 		client:    stash.NewClient(cfg.StashURL, cfg.APIKey, cfg.DryRun),
 		scheduler: scheduler.New(cfg.Schedule.Interval.Duration, cfg.Schedule.DailyTime),
 		now:       func() time.Time { return time.Now().UTC() },
+		pollEvery: 3 * time.Second,
 	}, nil
 }
 
@@ -73,9 +78,16 @@ func (r *Runner) StartManualRun() error {
 	if !r.beginRun("manual") {
 		return ErrRunInProgress
 	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	r.setRunCancel(cancel)
 
 	go func() {
-		if err := r.runCycleWithLock(context.Background(), "manual"); err != nil {
+		defer cancel()
+		if err := r.runCycleWithLock(runCtx, "manual"); err != nil {
+			if errors.Is(err, context.Canceled) {
+				r.logger.Printf("manual run stopped")
+				return
+			}
 			r.logger.Printf("manual run failed: %v", err)
 		}
 	}()
@@ -86,7 +98,10 @@ func (r *Runner) runCycle(ctx context.Context, trigger string) error {
 	if !r.beginRun(trigger) {
 		return ErrRunInProgress
 	}
-	return r.runCycleWithLock(ctx, trigger)
+	runCtx, cancel := context.WithCancel(ctx)
+	r.setRunCancel(cancel)
+	defer cancel()
+	return r.runCycleWithLock(runCtx, trigger)
 }
 
 func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
@@ -108,13 +123,21 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	r.updateRunProgress("resolving_roots", "Resolving watch roots")
 	roots, err := r.watchRoots(ctx)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			summary.Stopped = true
+			return err
+		}
 		summary.LastError = err.Error()
 		return fmt.Errorf("resolve watch roots: %w", err)
 	}
 
 	r.updateRunProgress("scanning_files", fmt.Sprintf("Scanning %d watch roots", len(roots)))
-	result, err := r.detector.Scan(roots, st.Paths)
+	result, err := r.detector.Scan(ctx, roots, st.Paths)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			summary.Stopped = true
+			return err
+		}
 		summary.LastError = err.Error()
 		return fmt.Errorf("detect changes: %w", err)
 	}
@@ -135,7 +158,8 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	if len(scanTargets) > 0 && !retryDeferred {
 		summary.ScanAttempted = true
 		r.updateRunProgress("triggering_scan", fmt.Sprintf("Requesting Stash scan for %d path targets", len(scanTargets)))
-		if err := r.client.TriggerScan(ctx, scanTargets); err != nil {
+		jobID, err := r.client.TriggerScan(ctx, scanTargets)
+		if err != nil {
 			summary.LastError = err.Error()
 			st.PendingScan = r.nextPendingScan(scanTargets, st.PendingScan, err, summary.StartedAt)
 			st.Paths = result.Current
@@ -149,6 +173,32 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 			summary.PendingAfter = len(st.PendingScan.Paths)
 			finalSnapshot = st
 			return fmt.Errorf("trigger scan: %w", err)
+		}
+		summary.StashTask.ID = jobID
+		if jobID != "" {
+			r.updateRunProgress("waiting_for_stash", fmt.Sprintf("Waiting for Stash task %s", jobID))
+			task, waitErr := r.waitForJob(ctx, jobID)
+			summary.StashTask = task
+			if waitErr != nil {
+				summary.LastError = waitErr.Error()
+				if errors.Is(waitErr, context.Canceled) {
+					summary.Stopped = true
+				} else {
+					st.PendingScan = r.nextPendingScan(scanTargets, st.PendingScan, waitErr, summary.StartedAt)
+				}
+				st.Paths = result.Current
+				st.LastRunAt = result.FinishedAt
+				finalSnapshot = st
+				r.updateRunProgress("saving_state", "Saving scanner state")
+				if saveErr := r.store.Save(st); saveErr != nil {
+					summary.LastError = saveErr.Error()
+					return fmt.Errorf("save failed state: %w", saveErr)
+				}
+				summary.StateSaved = true
+				summary.PendingAfter = len(st.PendingScan.Paths)
+				finalSnapshot = st
+				return waitErr
+			}
 		}
 		summary.ScanSucceeded = true
 		st.PendingScan = state.PendingScan{}
@@ -190,4 +240,13 @@ func (r *Runner) watchRoots(ctx context.Context) ([]string, error) {
 	r.cfg.WatchRoots = append([]string{}, roots...)
 	r.mu.Unlock()
 	return roots, nil
+}
+
+func (r *Runner) setRunCancel(cancel context.CancelFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.running {
+		return
+	}
+	r.cancelRun = cancel
 }

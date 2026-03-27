@@ -9,28 +9,31 @@ import (
 )
 
 type RunSummary struct {
-	Trigger         string    `json:"trigger"`
-	StartedAt       time.Time `json:"started_at"`
-	FinishedAt      time.Time `json:"finished_at"`
-	TrackedFiles    int       `json:"tracked_files"`
-	DetectedTargets int       `json:"detected_targets"`
-	PendingTargets  int       `json:"pending_targets"`
-	PendingAfter    int       `json:"pending_after"`
-	ScanTargets     int       `json:"scan_targets"`
-	ScanAttempted   bool      `json:"scan_attempted"`
-	ScanSucceeded   bool      `json:"scan_succeeded"`
-	RetryAttempt    int       `json:"retry_attempt"`
-	RetryDeferred   bool      `json:"retry_deferred"`
-	StateSaved      bool      `json:"state_saved"`
-	LastError       string    `json:"last_error,omitempty"`
+	Trigger         string          `json:"trigger"`
+	StartedAt       time.Time       `json:"started_at"`
+	FinishedAt      time.Time       `json:"finished_at"`
+	TrackedFiles    int             `json:"tracked_files"`
+	DetectedTargets int             `json:"detected_targets"`
+	PendingTargets  int             `json:"pending_targets"`
+	PendingAfter    int             `json:"pending_after"`
+	ScanTargets     int             `json:"scan_targets"`
+	ScanAttempted   bool            `json:"scan_attempted"`
+	ScanSucceeded   bool            `json:"scan_succeeded"`
+	Stopped         bool            `json:"stopped"`
+	RetryAttempt    int             `json:"retry_attempt"`
+	RetryDeferred   bool            `json:"retry_deferred"`
+	StateSaved      bool            `json:"state_saved"`
+	StashTask       StashTaskStatus `json:"stash_task"`
+	LastError       string          `json:"last_error,omitempty"`
 }
 
 type RunState struct {
-	Trigger   string    `json:"trigger"`
-	StartedAt time.Time `json:"started_at"`
-	Phase     string    `json:"phase"`
-	Detail    string    `json:"detail"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Trigger   string          `json:"trigger"`
+	StartedAt time.Time       `json:"started_at"`
+	Phase     string          `json:"phase"`
+	Detail    string          `json:"detail"`
+	UpdatedAt time.Time       `json:"updated_at"`
+	StashTask StashTaskStatus `json:"stash_task"`
 }
 
 type Status struct {
@@ -93,6 +96,7 @@ func (r *Runner) beginRun(trigger string) bool {
 func (r *Runner) finishRun(summary RunSummary, snapshot state.Snapshot) {
 	r.mu.Lock()
 	r.running = false
+	r.cancelRun = nil
 	r.currentRun = RunState{}
 	r.lastSummary = summary
 	r.mu.Unlock()
@@ -106,7 +110,7 @@ func (r *Runner) logRunSummary(summary RunSummary, snapshot state.Snapshot) {
 	}
 
 	r.logger.Printf(
-		"run summary: trigger=%s tracked_files=%d detected_targets=%d pending_targets=%d pending_after=%d scan_targets=%d scan_attempted=%t scan_succeeded=%t retry_attempt=%d retry_deferred=%t state_saved=%t last_run_at=%s last_success_at=%s duration=%s",
+		"run summary: trigger=%s tracked_files=%d detected_targets=%d pending_targets=%d pending_after=%d scan_targets=%d scan_attempted=%t scan_succeeded=%t stopped=%t stash_task_id=%s stash_task_status=%s retry_attempt=%d retry_deferred=%t state_saved=%t last_run_at=%s last_success_at=%s duration=%s",
 		summary.Trigger,
 		summary.TrackedFiles,
 		summary.DetectedTargets,
@@ -115,6 +119,9 @@ func (r *Runner) logRunSummary(summary RunSummary, snapshot state.Snapshot) {
 		summary.ScanTargets,
 		summary.ScanAttempted,
 		summary.ScanSucceeded,
+		summary.Stopped,
+		summary.StashTask.ID,
+		summary.StashTask.Status,
 		summary.RetryAttempt,
 		summary.RetryDeferred,
 		summary.StateSaved,
@@ -136,5 +143,16 @@ func (r *Runner) updateRunProgress(phase, detail string) {
 
 	r.currentRun.Phase = phase
 	r.currentRun.Detail = detail
+	r.currentRun.UpdatedAt = r.now()
+}
+
+func (r *Runner) updateRunTask(task StashTaskStatus) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.running {
+		return
+	}
+
+	r.currentRun.StashTask = task
 	r.currentRun.UpdatedAt = r.now()
 }

@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,7 +23,7 @@ func TestScanDetectsNewFilesAndCoalescesTargets(t *testing.T) {
 	writeTestFile(t, fileB, "b")
 
 	detector := New([]string{"*.mp4"}, []string{".cache"})
-	result, err := detector.Scan([]string{root}, map[string]state.PathState{})
+	result, err := detector.Scan(context.Background(), []string{root}, map[string]state.PathState{})
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestScanIgnoresUnchangedFiles(t *testing.T) {
 	}
 
 	detector := New([]string{"*.mp4"}, nil)
-	result, err := detector.Scan([]string{root}, previous)
+	result, err := detector.Scan(context.Background(), []string{root}, previous)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}

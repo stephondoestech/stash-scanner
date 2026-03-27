@@ -20,6 +20,7 @@ var uiFS embed.FS
 type Runner interface {
 	Status(context.Context) (app.Status, error)
 	StartManualRun() error
+	StopActiveRun(context.Context) error
 }
 
 type Server struct {
@@ -53,6 +54,7 @@ func New(addr, fallbackAddr string, runner Runner, logger *log.Logger) *Server {
 	mux.HandleFunc("/ui/app.js", s.handleAppJS)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/run-now", s.handleRunNow)
+	mux.HandleFunc("/api/stop", s.handleStop)
 	return s
 }
 
@@ -164,6 +166,23 @@ func (s *Server) handleRunNow(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 	case errors.Is(err, app.ErrRunInProgress):
 		writeJSON(w, http.StatusConflict, map[string]string{"status": "running"})
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	err := s.runner.StopActiveRun(r.Context())
+	switch {
+	case err == nil:
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "stopping"})
+	case errors.Is(err, app.ErrNoRunInProgress):
+		writeJSON(w, http.StatusConflict, map[string]string{"status": "idle"})
 	default:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

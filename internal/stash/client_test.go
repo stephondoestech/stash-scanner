@@ -34,8 +34,12 @@ func TestTriggerScanSendsGraphQLRequest(t *testing.T) {
 
 		return jsonResponse(`{"data":{"metadataScan":"job-123"}}`), nil
 	})}
-	if err := client.TriggerScan(context.Background(), []string{"/media/library/scene"}); err != nil {
+	jobID, err := client.TriggerScan(context.Background(), []string{"/media/library/scene"})
+	if err != nil {
 		t.Fatalf("TriggerScan: %v", err)
+	}
+	if got, want := jobID, "job-123"; got != want {
+		t.Fatalf("job id mismatch: got %q want %q", got, want)
 	}
 
 	if got, want := gotContentType, "application/json"; got != want {
@@ -60,13 +64,56 @@ func TestTriggerScanReturnsGraphQLError(t *testing.T) {
 	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return jsonResponse(`{"errors":[{"message":"scan failed"}]}`), nil
 	})}
-	err := client.TriggerScan(context.Background(), []string{"/media/library/scene"})
+	_, err := client.TriggerScan(context.Background(), []string{"/media/library/scene"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 
 	if !strings.Contains(err.Error(), "scan failed") {
 		t.Fatalf("expected GraphQL error message, got %v", err)
+	}
+}
+
+func TestFindJobReturnsStatus(t *testing.T) {
+	client := NewClient("http://stash.local", "secret-key", false)
+	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(`{"data":{"findJob":{"id":"job-123","status":"RUNNING","description":"Scanning","progress":0.5,"addTime":"2026-03-27T00:00:00Z","startTime":"2026-03-27T00:00:01Z","endTime":null,"error":""}}}`), nil
+	})}
+
+	job, err := client.FindJob(context.Background(), "job-123")
+	if err != nil {
+		t.Fatalf("FindJob: %v", err)
+	}
+
+	if got, want := job.Status, "RUNNING"; got != want {
+		t.Fatalf("job status mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestStopJobSendsMutation(t *testing.T) {
+	var gotQuery string
+
+	client := NewClient("http://stash.local", "secret-key", false)
+	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+
+		var req gqlRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		gotQuery = req.Query
+		return jsonResponse(`{"data":{"stopJob":true}}`), nil
+	})}
+
+	if err := client.StopJob(context.Background(), "job-123"); err != nil {
+		t.Fatalf("StopJob: %v", err)
+	}
+
+	if !strings.Contains(gotQuery, `stopJob(job_id: "job-123")`) {
+		t.Fatalf("expected stopJob mutation, got %q", gotQuery)
 	}
 }
 
@@ -115,6 +162,11 @@ func TestNormalizeEndpoint(t *testing.T) {
 			name: "existing graphql path",
 			raw:  "http://localhost:9999/graphql",
 			want: "http://localhost:9999/graphql",
+		},
+		{
+			name: "playground path",
+			raw:  "https://stash.local/playground",
+			want: "https://stash.local/graphql",
 		},
 		{
 			name: "nested path",
