@@ -68,23 +68,28 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKER_IMAGE }}
-          tags: |
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=ref,event=tag
-            type=semver,pattern={{version}}
+      - name: Compute Docker tags
+        id: tags
+        run: |
+          if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            printf 'tags=%s:develop\n' "${DOCKER_IMAGE}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if printf '%s' "${GITHUB_REF}" | grep -Eq '^refs/tags/v'; then
+            printf 'tags=%s:%s\n' "${DOCKER_IMAGE}" "${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Unsupported push ref: ${GITHUB_REF}" >&2
+          exit 1
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
