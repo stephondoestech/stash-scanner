@@ -80,9 +80,16 @@ func (c *Client) Performers(ctx context.Context) ([]Performer, error) {
 
 	page := 1
 	performers := []Performer{}
+	includeAliases := true
 	for {
-		response, err := c.executeQuery(ctx, endpoint, buildFindPerformersQuery(page, 100))
+		response, err := c.executeQuery(ctx, endpoint, buildFindPerformersQuery(page, 100, includeAliases))
 		if err != nil {
+			if includeAliases && isUnsupportedFieldError(err, "aliases") {
+				includeAliases = false
+				if page == 1 {
+					continue
+				}
+			}
 			return nil, err
 		}
 		for _, performer := range response.Data.FindPerformers.Performers {
@@ -210,8 +217,12 @@ func buildFindGalleriesQuery(page, perPage int) string {
 	return fmt.Sprintf("query { findGalleries(filter: { page: %d, per_page: %d }) { count galleries { id title details files { path } performers { id } tags { name } studio { name } } } }", page, perPage)
 }
 
-func buildFindPerformersQuery(page, perPage int) string {
-	return fmt.Sprintf("query { findPerformers(filter: { page: %d, per_page: %d }) { count performers { id name aliases image_path } } }", page, perPage)
+func buildFindPerformersQuery(page, perPage int, includeAliases bool) string {
+	fields := "id name image_path"
+	if includeAliases {
+		fields += " aliases"
+	}
+	return fmt.Sprintf("query { findPerformers(filter: { page: %d, per_page: %d }) { count performers { %s } } }", page, perPage, fields)
 }
 
 func firstPath(files []struct {
@@ -254,4 +265,12 @@ func trimmedStrings(values []string) []string {
 		}
 	}
 	return out
+}
+
+func isUnsupportedFieldError(err error, field string) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "Cannot query field") && strings.Contains(message, `"`+field+`"`)
 }
