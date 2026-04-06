@@ -106,6 +106,26 @@ func (r *Runner) StartManualRun() error {
 	return nil
 }
 
+func (r *Runner) StartPendingOnlyRun() error {
+	if !r.beginRun("pending_only") {
+		return ErrRunInProgress
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	r.setRunCancel(cancel)
+
+	go func() {
+		defer cancel()
+		if err := r.runPendingOnlyWithLock(runCtx, "pending_only"); err != nil {
+			if errors.Is(err, context.Canceled) {
+				logging.Event(r.logger, "pending_only_run_stopped")
+				return
+			}
+			logging.Event(r.logger, "pending_only_run_failed", "error", err)
+		}
+	}()
+	return nil
+}
+
 func (r *Runner) runCycle(ctx context.Context, trigger string) error {
 	if !r.beginRun(trigger) {
 		return ErrRunInProgress
@@ -326,6 +346,128 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 	finalSnapshot = st
 	logging.DebugEvent(r.logger, "state_saved", "path", r.cfg.StatePath, "pending_paths", len(st.PendingScan.Paths), "pending_debounce_paths", len(st.PendingDebounce.Paths))
 	r.updateRunProgress("completed", "Scan run completed")
+	return nil
+}
+
+func (r *Runner) runPendingOnlyWithLock(ctx context.Context, trigger string) error {
+	summary := RunSummary{Trigger: trigger, StartedAt: r.now()}
+	var finalSnapshot state.Snapshot
+
+	defer func() {
+		summary.FinishedAt = r.now()
+		r.finishRun(summary, finalSnapshot)
+	}()
+
+	logging.Event(r.logger, "run_started", "trigger", trigger)
+
+	st, err := r.store.Load()
+	if err != nil {
+		summary.LastError = err.Error()
+		return fmt.Errorf("load state: %w", err)
+	}
+	finalSnapshot = st
+
+	if len(st.PendingDebounce.Paths) == 0 && len(st.PendingScan.Paths) == 0 {
+		r.updateRunProgress("idle", "No pending paths to scan")
+		summary.PendingTargets = 0
+		return nil
+	}
+
+	if len(st.PendingDebounce.Paths) > 0 {
+		st.PendingDebounce.ReadyAt = summary.StartedAt
+	}
+
+	debounceTargets, _ := r.resolveDebounceTargets(st.PendingDebounce, summary.StartedAt)
+	scanTargets, retryAttempt, retryDeferred := r.resolveScanTargets(debounceTargets, st.PendingScan, summary.StartedAt)
+	summary.PendingTargets = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
+	summary.ScanTargets = len(scanTargets)
+	summary.RetryAttempt = retryAttempt
+	summary.RetryDeferred = retryDeferred
+
+	if retryDeferred || len(scanTargets) == 0 {
+		r.updateRunProgress("idle", "No pending paths ready to scan")
+		finalSnapshot = st
+		return nil
+	}
+
+	summary.ScanAttempted = true
+	r.updateRunProgress("triggering_scan", fmt.Sprintf("Requesting Stash scan for %d pending path targets", len(scanTargets)))
+	jobID, err := r.client.TriggerScan(ctx, scanTargets)
+	if err != nil {
+		summary.LastError = err.Error()
+		st.PendingScan = r.nextPendingScan(scanTargets, st.PendingScan, err, summary.StartedAt)
+		st.PendingDebounce = clearPendingDebounce(st.PendingDebounce, debounceTargets)
+		finalSnapshot = st
+		if saveErr := r.store.Save(st); saveErr != nil {
+			summary.LastError = saveErr.Error()
+			return fmt.Errorf("save failed state: %w", saveErr)
+		}
+		summary.StateSaved = true
+		summary.PendingAfter = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
+		return fmt.Errorf("trigger scan: %w", err)
+	}
+
+	summary.StashTask.ID = jobID
+	if jobID != "" {
+		r.updateRunTask(StashTaskStatus{
+			ID:          jobID,
+			Status:      "QUEUED",
+			Description: "Metadata scan queued",
+		})
+		r.updateRunProgress("waiting_for_stash", fmt.Sprintf("Waiting for Stash task %s", jobID))
+		task, waitErr := r.waitForJob(ctx, jobID)
+		summary.StashTask = task
+		if waitErr != nil {
+			summary.LastError = waitErr.Error()
+			if errors.Is(waitErr, context.Canceled) {
+				summary.Stopped = true
+			} else {
+				st.PendingScan = r.nextPendingScan(scanTargets, st.PendingScan, waitErr, summary.StartedAt)
+			}
+			st.PendingDebounce = clearPendingDebounce(st.PendingDebounce, debounceTargets)
+			finalSnapshot = st
+			if saveErr := r.store.Save(st); saveErr != nil {
+				summary.LastError = saveErr.Error()
+				return fmt.Errorf("save failed state: %w", saveErr)
+			}
+			summary.StateSaved = true
+			summary.PendingAfter = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
+			return waitErr
+		}
+	}
+
+	summary.ScanSucceeded = true
+	postScanTasks, postScanTask, postScanErr := r.runPostScanTasks(ctx, scanTargets)
+	summary.PostScanTasks = postScanTasks
+	if postScanTask.ID != "" || postScanTask.Status != "" {
+		summary.StashTask = postScanTask
+	}
+	if postScanErr != nil {
+		summary.LastError = postScanErr.Error()
+		st.PendingScan = r.nextPendingScan(scanTargets, st.PendingScan, postScanErr, summary.StartedAt)
+		st.PendingDebounce = clearPendingDebounce(st.PendingDebounce, debounceTargets)
+		finalSnapshot = st
+		if saveErr := r.store.Save(st); saveErr != nil {
+			summary.LastError = saveErr.Error()
+			return fmt.Errorf("save failed state: %w", saveErr)
+		}
+		summary.StateSaved = true
+		summary.PendingAfter = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
+		return postScanErr
+	}
+
+	st.PendingScan = state.PendingScan{}
+	st.PendingDebounce = clearPendingDebounce(st.PendingDebounce, debounceTargets)
+	finalSnapshot = st
+	r.updateRunProgress("saving_state", "Saving scanner state")
+	if err := r.store.Save(st); err != nil {
+		summary.LastError = err.Error()
+		return fmt.Errorf("save state: %w", err)
+	}
+
+	summary.StateSaved = true
+	summary.PendingAfter = len(st.PendingScan.Paths) + len(st.PendingDebounce.Paths)
+	r.updateRunProgress("completed", "Pending path scan completed")
 	return nil
 }
 

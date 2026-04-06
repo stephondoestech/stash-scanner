@@ -78,6 +78,82 @@ func RegisterRoutes(mux *http.ServeMux, prefix string, service *Service) {
 		}
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "refreshed"})
 	})
+	mux.HandleFunc(base+"api/items/state", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			ItemID      string      `json:"item_id"`
+			ReviewState ReviewState `json:"review_state"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		if err := service.SetReviewState(strings.TrimSpace(payload.ItemID), payload.ReviewState); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "updated"})
+	})
+	mux.HandleFunc(base+"api/items/assign", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			ItemID      string `json:"item_id"`
+			PerformerID string `json:"performer_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		if err := service.AssignCandidate(r.Context(), strings.TrimSpace(payload.ItemID), strings.TrimSpace(payload.PerformerID)); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "assigned"})
+	})
+	mux.HandleFunc(base+"api/performers/search", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		results, err := service.SearchPerformers(query)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusOK, results)
+	})
+	mux.HandleFunc(base+"api/candidate-image", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		itemID := strings.TrimSpace(r.URL.Query().Get("item_id"))
+		performerID := strings.TrimSpace(r.URL.Query().Get("performer_id"))
+		if itemID == "" || performerID == "" {
+			http.Error(w, "item_id and performer_id are required", http.StatusBadRequest)
+			return
+		}
+		image, err := service.CandidateImage(r.Context(), itemID, performerID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store, max-age=0")
+		if image.ContentType != "" {
+			w.Header().Set("Content-Type", image.ContentType)
+		} else {
+			w.Header().Set("Content-Type", "application/octet-stream")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(image.Data)
+	})
 }
 
 func (s *Server) Run(ctx context.Context) error {

@@ -434,6 +434,69 @@ func TestStopActiveRunStopsRemoteJob(t *testing.T) {
 	}
 }
 
+func TestFlushPendingDebounceStartsPendingOnlyScanWithoutFilesystemWalk(t *testing.T) {
+	cfg := config.Config{
+		WatchRoots: []string{"/not/used"},
+		StatePath:  filepath.Join(t.TempDir(), "state.json"),
+		Retry: config.Retry{
+			MaxAttempts:    5,
+			InitialBackoff: config.Duration{Duration: 10 * time.Second},
+			MaxBackoff:     config.Duration{Duration: time.Minute},
+		},
+		Schedule: config.Schedule{
+			Interval: config.Duration{Duration: time.Minute},
+		},
+	}
+
+	store := state.NewStore(cfg.StatePath)
+	snapshot := state.Snapshot{
+		Paths: map[string]state.PathState{},
+		PendingDebounce: state.PendingDebounce{
+			Paths:   []string{"/media/pending"},
+			ReadyAt: time.Date(2026, time.March, 27, 1, 0, 0, 0, time.UTC).Add(time.Hour),
+		},
+	}
+	if err := store.Save(snapshot); err != nil {
+		t.Fatalf("save snapshot: %v", err)
+	}
+
+	client := &fakeClient{
+		jobID: "job-123",
+		jobs: []stash.Job{
+			{ID: "job-123", Status: "FINISHED", Description: "Scanning", Progress: 1},
+		},
+	}
+	runner := &Runner{
+		cfg:       cfg,
+		logger:    log.New(io.Discard, "", 0),
+		detector:  detect.New([]string{"*.mp4"}, nil),
+		store:     store,
+		client:    client,
+		scheduler: scheduler.New(time.Minute, ""),
+		now:       func() time.Time { return time.Date(2026, time.March, 27, 2, 0, 0, 0, time.UTC) },
+		pollEvery: time.Millisecond,
+	}
+
+	if err := runner.FlushPendingDebounce(); err != nil {
+		t.Fatalf("FlushPendingDebounce: %v", err)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+
+	if got, want := client.calls, 1; got != want {
+		t.Fatalf("scan call count mismatch: got %d want %d", got, want)
+	}
+
+	updated, err := store.Load()
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+
+	if got := len(updated.PendingDebounce.Paths); got != 0 {
+		t.Fatalf("expected pending debounce queue to clear, got %d entries", got)
+	}
+}
+
 type fakeClient struct {
 	roots          []string
 	calls          int

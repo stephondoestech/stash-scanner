@@ -70,7 +70,7 @@ func (r *Runner) FlushPendingDebounce() error {
 		return nil
 	}
 
-	if err := r.StartManualRun(); err != nil && !errors.Is(err, ErrRunInProgress) {
+	if err := r.StartPendingOnlyRun(); err != nil && !errors.Is(err, ErrRunInProgress) {
 		return err
 	}
 	return nil

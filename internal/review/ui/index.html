@@ -14,6 +14,7 @@
     button { border:0; border-radius:999px; background:var(--accent); color:#fff; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; }
     button[disabled] { opacity:.6; cursor:not-allowed; }
     .hero, .status, .stats, .layout { display:grid; gap:16px; }
+    .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .nav { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
     .nav a { text-decoration:none; color:var(--ink); background:rgba(255,253,250,.84); border:1px solid var(--line); padding:10px 14px; border-radius:999px; font-weight:700; }
     .nav a.active { background:var(--accent-soft); color:var(--accent); }
@@ -44,7 +45,15 @@
     .candidate img { display:block; width:100%; aspect-ratio:1/1; object-fit:cover; background:#ece3d7; }
     .candidate-body { padding:14px; }
     .reason { color:var(--muted); font-size:.88rem; }
+    .search-box { margin-top:18px; padding:16px; border:1px solid rgba(215,202,183,.85); border-radius:18px; background:#fff; }
+    .search-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+    .search-row input { flex:1 1 220px; min-width:0; border:1px solid var(--line); border-radius:999px; padding:12px 16px; font:inherit; background:#fffdfa; color:var(--ink); }
     .empty { color:var(--muted); padding:10px 0; }
+    .filters { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 14px; }
+    .filters button { background:#efe5d8; color:var(--ink); }
+    .filters button.active { background:var(--accent); color:#fff; }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+    .actions button.secondary { background:#efe5d8; color:var(--ink); }
     @media (max-width: 900px) {
       .hero, .layout { grid-template-columns:1fr; }
       .status { grid-template-columns:auto 1fr; }
@@ -60,9 +69,9 @@
     <section class="hero">
       <div>
         <h1>Performer Reviewer</h1>
-        <p>Read-only queue for scenes and galleries with no performers. Review likely performer matches before any write-back workflow exists.</p>
+        <p>Review scenes and galleries with no performers, keep a persistent queue state, and prepare for manual write-back workflows.</p>
       </div>
-      <div><button id="refresh">Refresh Queue</button></div>
+      <div class="toolbar"><button id="refresh">Refresh Queue</button></div>
     </section>
     <section class="status">
       <span id="dot" class="dot"></span>
@@ -71,12 +80,21 @@
     </section>
     <section class="stats">
       <article class="card"><div class="label">Items</div><div id="item-count" class="value">-</div><div class="sub">Scenes and galleries missing performers</div></article>
+      <article class="card"><div class="label">Active</div><div id="active-count" class="value">-</div><div class="sub">Pending review items</div></article>
+      <article class="card"><div class="label">Skipped</div><div id="skipped-count" class="value">-</div><div class="sub">Hidden from active work</div></article>
+      <article class="card"><div class="label">Resolved</div><div id="resolved-count" class="value">-</div><div class="sub">Assigned by automation or review</div></article>
       <article class="card"><div class="label">Needs Review</div><div id="review-count" class="value">-</div><div class="sub">Has candidate performers</div></article>
       <article class="card"><div class="label">No Candidate</div><div id="empty-count" class="value">-</div><div class="sub">No likely performer yet</div></article>
     </section>
     <section class="layout">
       <article class="panel">
         <div class="label">Queue</div>
+        <div class="filters">
+          <button id="filter-active" class="active" type="button">Active</button>
+          <button id="filter-all" type="button">All</button>
+          <button id="filter-skipped" type="button">Skipped</button>
+          <button id="filter-resolved" type="button">Resolved</button>
+        </div>
         <div id="queue" class="list"></div>
         <div id="queue-empty" class="empty">No review items loaded.</div>
       </article>
@@ -93,6 +111,20 @@
             <div class="row"><strong>Tags</strong><span id="detail-tags">-</span></div>
           </div>
           <p id="detail-body" class="sub"></p>
+          <div class="actions">
+            <button id="skip-item" type="button">Skip Item</button>
+            <button id="reopen-item" type="button" class="secondary">Reopen Item</button>
+          </div>
+          <div id="assignment-meta" class="sub"></div>
+          <section class="search-box">
+            <div class="label">Manual Performer Search</div>
+            <div class="search-row">
+              <input id="manual-search-query" type="text" placeholder="Search by performer name or alias">
+              <button id="manual-search-button" type="button">Search</button>
+            </div>
+            <div id="manual-search-status" class="sub"></div>
+            <div id="manual-search-results" class="candidates"></div>
+          </section>
           <div id="candidates" class="candidates"></div>
         </div>
       </article>

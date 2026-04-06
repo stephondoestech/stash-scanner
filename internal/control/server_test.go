@@ -209,3 +209,19 @@ func (f *fakeReviewClient) MissingPerformerGalleries(context.Context) ([]stash.M
 func (f *fakeReviewClient) Performers(context.Context) ([]stash.Performer, error) {
 	return f.performers, nil
 }
+
+func (f *fakeReviewClient) FetchImage(context.Context, string) (stash.ImageResult, error) {
+	return stash.ImageResult{}, nil
+}
+
+func (f *fakeReviewClient) AutoAssignGalleryPerformersFromScenePaths(context.Context) (int, error) {
+	return 0, nil
+}
+
+func (f *fakeReviewClient) AssignScenePerformers(context.Context, string, []string) error {
+	return nil
+}
+
+func (f *fakeReviewClient) AssignGalleryPerformers(context.Context, string, []string) error {
+	return nil
+}

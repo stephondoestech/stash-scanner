@@ -156,28 +156,12 @@ type gqlResponse struct {
 			} `json:"scene"`
 		} `json:"listScrapers"`
 		FindScenes struct {
-			Count  int `json:"count"`
-			Scenes []struct {
-				ID         string `json:"id"`
-				Title      string `json:"title"`
-				Details    string `json:"details"`
-				Files      []struct{ Path string `json:"path"` } `json:"files"`
-				Performers []struct{ ID string `json:"id"` } `json:"performers"`
-				Tags       []struct{ Name string `json:"name"` } `json:"tags"`
-				Studio     *struct{ Name string `json:"name"` } `json:"studio"`
-			} `json:"scenes"`
+			Count  int           `json:"count"`
+			Scenes []sceneRecord `json:"scenes"`
 		} `json:"findScenes"`
 		FindGalleries struct {
-			Count     int `json:"count"`
-			Galleries []struct {
-				ID         string `json:"id"`
-				Title      string `json:"title"`
-				Details    string `json:"details"`
-				Files      []struct{ Path string `json:"path"` } `json:"files"`
-				Performers []struct{ ID string `json:"id"` } `json:"performers"`
-				Tags       []struct{ Name string `json:"name"` } `json:"tags"`
-				Studio     *struct{ Name string `json:"name"` } `json:"studio"`
-			} `json:"galleries"`
+			Count     int             `json:"count"`
+			Galleries []galleryRecord `json:"galleries"`
 		} `json:"findGalleries"`
 		FindPerformers struct {
 			Count      int `json:"count"`
@@ -188,6 +172,12 @@ type gqlResponse struct {
 				ImagePath string   `json:"image_path"`
 			} `json:"performers"`
 		} `json:"findPerformers"`
+		SceneUpdate *struct {
+			ID string `json:"id"`
+		} `json:"sceneUpdate"`
+		GalleryUpdate *struct {
+			ID string `json:"id"`
+		} `json:"galleryUpdate"`
 	} `json:"data"`
 	Errors []gqlError `json:"errors"`
 }
