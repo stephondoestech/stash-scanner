@@ -11,6 +11,7 @@ import (
 	"stash-scanner/internal/logging"
 	"stash-scanner/internal/review"
 	"stash-scanner/internal/stash"
+	"stash-scanner/internal/version"
 )
 
 func main() {
@@ -23,6 +24,7 @@ func main() {
 	defer cancel()
 
 	logger := log.New(os.Stdout, "reviewer: ", log.LstdFlags|log.Lmsgprefix)
+	logging.Event(logger, "build_info", "version", version.Current(), "commit", version.Commit())
 	service, err := review.NewService(
 		review.NewStore(cfg.QueuePath),
 		stash.NewClient(cfg.StashURL, cfg.APIKey, false),

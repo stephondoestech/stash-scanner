@@ -1,12 +1,17 @@
 package version
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
 const fallback = "dev"
+
+var (
+	commit = ""
+)
 
 func Current() string {
 	candidates := []string{
@@ -26,4 +31,21 @@ func Current() string {
 	}
 
 	return fallback
+}
+
+func Commit() string {
+	value := strings.TrimSpace(commit)
+	if value == "" {
+		return "unknown"
+	}
+	return value
+}
+
+func Describe() string {
+	current := Current()
+	currentCommit := Commit()
+	if currentCommit == "unknown" {
+		return current
+	}
+	return fmt.Sprintf("%s (%s)", current, currentCommit)
 }
