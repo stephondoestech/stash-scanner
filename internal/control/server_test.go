@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"stash-scanner/internal/app"
+	"stash-scanner/internal/review"
+	"stash-scanner/internal/stash"
 	"stash-scanner/internal/state"
 )
 
@@ -139,11 +141,45 @@ func TestFormatBindErrorGeneric(t *testing.T) {
 	}
 }
 
+func TestMountReviewerServesMountedRoutes(t *testing.T) {
+	service, err := review.NewService(
+		review.NewStore(t.TempDir()+"/queue.json"),
+		&fakeReviewClient{performers: []stash.Performer{}},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	server := New("127.0.0.1:0", "", &fakeRunner{}, log.New(io.Discard, "", 0))
+	server.MountReviewer(service)
+
+	indexReq := httptest.NewRequest(http.MethodGet, "/reviewer/", nil)
+	indexRec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(indexRec, indexReq)
+	if got, want := indexRec.Code, http.StatusOK; got != want {
+		t.Fatalf("reviewer index status mismatch: got %d want %d", got, want)
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/reviewer/api/status", nil)
+	statusRec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(statusRec, statusReq)
+	if got, want := statusRec.Code, http.StatusOK; got != want {
+		t.Fatalf("reviewer status mismatch: got %d want %d", got, want)
+	}
+}
+
 type fakeRunner struct {
 	status   app.Status
 	runErr   error
 	stopErr  error
 	flushErr error
+}
+
+type fakeReviewClient struct {
+	scenes     []stash.MediaItem
+	galleries  []stash.MediaItem
+	performers []stash.Performer
 }
 
 func (f *fakeRunner) Status(context.Context) (app.Status, error) {
@@ -160,4 +196,16 @@ func (f *fakeRunner) StopActiveRun(context.Context) error {
 
 func (f *fakeRunner) FlushPendingDebounce() error {
 	return f.flushErr
+}
+
+func (f *fakeReviewClient) MissingPerformerScenes(context.Context) ([]stash.MediaItem, error) {
+	return f.scenes, nil
+}
+
+func (f *fakeReviewClient) MissingPerformerGalleries(context.Context) ([]stash.MediaItem, error) {
+	return f.galleries, nil
+}
+
+func (f *fakeReviewClient) Performers(context.Context) ([]stash.Performer, error) {
+	return f.performers, nil
 }

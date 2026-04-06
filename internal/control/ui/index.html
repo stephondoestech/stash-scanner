@@ -15,6 +15,9 @@
     h1 { margin:0 0 8px; font-size:2.4rem; letter-spacing:-0.05em; }
     p { color:var(--muted); }
     .hero { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; }
+    .nav { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+    .nav a { text-decoration:none; color:var(--ink); background:rgba(255,253,248,.72); border:1px solid rgba(214,201,183,.8); padding:10px 14px; border-radius:999px; font-weight:700; }
+    .nav a.active { background:var(--accent-soft); color:var(--accent); border-color:rgba(23,107,93,.24); }
     .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:flex-end; }
     .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); margin:24px 0; }
     .grid.two { grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); }
@@ -58,6 +61,10 @@
 </head>
 <body>
   <main>
+    <nav class="nav">
+      <a href="/" class="active">Scanner</a>
+      <a href="/reviewer/">Reviewer</a>
+    </nav>
     <section class="hero">
       <div>
         <h1>Scanner Control</h1>
