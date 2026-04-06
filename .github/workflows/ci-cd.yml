@@ -4,11 +4,16 @@ on:
   push:
     branches:
       - main
+      - develop
     tags:
       - "v*"
   pull_request:
     branches:
       - main
+      - develop
+  release:
+    types:
+      - published
 
 permissions:
   contents: write
@@ -25,6 +30,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -61,24 +68,28 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKER_IMAGE }}
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=branch
-            type=ref,event=tag
-            type=semver,pattern={{version}}
+      - name: Compute Docker tags
+        id: tags
+        run: |
+          if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            printf 'tags=%s:develop\n' "${DOCKER_IMAGE}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if printf '%s' "${GITHUB_REF}" | grep -Eq '^refs/tags/v'; then
+            printf 'tags=%s:%s\n' "${DOCKER_IMAGE}" "${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Unsupported push ref: ${GITHUB_REF}" >&2
+          exit 1
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -96,4 +107,43 @@ jobs:
           body: |
             Docker images published:
             - `${{ env.DOCKER_IMAGE }}:${{ github.ref_name }}`
-            - `${{ env.DOCKER_IMAGE }}:latest`
+
+  docker-latest:
+    name: Publish Latest Docker Tag
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'release'
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ github.event.release.tag_name }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
