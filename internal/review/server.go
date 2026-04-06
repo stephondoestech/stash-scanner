@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"stash-scanner/internal/logging"
@@ -23,6 +24,7 @@ type Server struct {
 
 func NewServer(bind string, service *Service, logger *log.Logger) *Server {
 	mux := http.NewServeMux()
+	RegisterRoutes(mux, "/", service)
 	s := &Server{
 		logger:  logger,
 		service: service,
@@ -33,11 +35,49 @@ func NewServer(bind string, service *Service, logger *log.Logger) *Server {
 		},
 	}
 
-	mux.HandleFunc("/", s.handleIndex)
-	mux.HandleFunc("/ui/app.js", s.handleAppJS)
-	mux.HandleFunc("/api/status", s.handleStatus)
-	mux.HandleFunc("/api/refresh", s.handleRefresh)
 	return s
+}
+
+func RegisterRoutes(mux *http.ServeMux, prefix string, service *Service) {
+	base := normalizePrefix(prefix)
+	mux.HandleFunc(base, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != base {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFileFS(w, r, uiFS, "ui/index.html")
+	})
+	if base != "/" {
+		trimmed := strings.TrimSuffix(base, "/")
+		mux.HandleFunc(trimmed, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != trimmed {
+				http.NotFound(w, r)
+				return
+			}
+			http.Redirect(w, r, base, http.StatusMovedPermanently)
+		})
+	}
+	mux.HandleFunc(base+"ui/app.js", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, uiFS, "ui/app.js")
+	})
+	mux.HandleFunc(base+"api/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, http.StatusOK, service.Status())
+	})
+	mux.HandleFunc(base+"api/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := service.Refresh(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "refreshed"})
+	})
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -62,36 +102,18 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
+func normalizePrefix(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" || prefix == "/" {
+		return "/"
 	}
-	http.ServeFileFS(w, r, uiFS, "ui/index.html")
-}
-
-func (s *Server) handleAppJS(w http.ResponseWriter, r *http.Request) {
-	http.ServeFileFS(w, r, uiFS, "ui/app.js")
-}
-
-func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+	if !strings.HasPrefix(prefix, "/") {
+		prefix = "/" + prefix
 	}
-	writeJSON(w, http.StatusOK, s.service.Status())
-}
-
-func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
 	}
-	if err := s.service.Refresh(r.Context()); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "refreshed"})
+	return prefix
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

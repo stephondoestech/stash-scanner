@@ -14,6 +14,9 @@
     button { border:0; border-radius:999px; background:var(--accent); color:#fff; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; }
     button[disabled] { opacity:.6; cursor:not-allowed; }
     .hero, .status, .stats, .layout { display:grid; gap:16px; }
+    .nav { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+    .nav a { text-decoration:none; color:var(--ink); background:rgba(255,253,250,.84); border:1px solid var(--line); padding:10px 14px; border-radius:999px; font-weight:700; }
+    .nav a.active { background:var(--accent-soft); color:var(--accent); }
     .hero { grid-template-columns:1.8fr auto; align-items:start; }
     .status { grid-template-columns:auto 1fr auto; align-items:center; margin:20px 0; padding:14px 16px; border:1px solid var(--line); border-radius:18px; background:rgba(255,253,250,.84); box-shadow:var(--shadow); }
     .dot { width:12px; height:12px; border-radius:50%; background:#b3a48f; }
@@ -50,6 +53,10 @@
 </head>
 <body>
   <main>
+    <nav class="nav">
+      <a href="/">Scanner</a>
+      <a href="/reviewer/" class="active">Reviewer</a>
+    </nav>
     <section class="hero">
       <div>
         <h1>Performer Reviewer</h1>
@@ -91,6 +98,6 @@
       </article>
     </section>
   </main>
-  <script src="/ui/app.js"></script>
+  <script src="ui/app.js"></script>
 </body>
 </html>

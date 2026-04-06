@@ -109,7 +109,7 @@ function renderDetail(item) {
 }
 
 async function loadStatus() {
-  const res = await fetch("/api/status");
+  const res = await fetch("api/status");
   if (!res.ok) throw new Error(await res.text());
   render(await res.json());
 }
@@ -117,7 +117,7 @@ async function loadStatus() {
 async function refreshQueue() {
   els.refresh.disabled = true;
   try {
-    const res = await fetch("/api/refresh", { method: "POST" });
+    const res = await fetch("api/refresh", { method: "POST" });
     if (!res.ok) throw new Error(await res.text());
     await loadStatus();
   } finally {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"stash-scanner/internal/config"
 	"stash-scanner/internal/control"
 	"stash-scanner/internal/logging"
+	"stash-scanner/internal/review"
+	"stash-scanner/internal/stash"
 	"stash-scanner/internal/state"
 )
 
@@ -64,9 +67,34 @@ func main() {
 		log.Fatalf("build runner: %v", err)
 	}
 
+	var reviewService *review.Service
+	if !runOnce {
+		reviewCfg, err := review.LoadConfig()
+		if err != nil {
+			logging.Event(log.Default(), "reviewer_disabled", "error", err)
+		} else {
+			reviewService, err = review.NewService(
+				review.NewStore(reviewCfg.QueuePath),
+				stash.NewClient(reviewCfg.StashURL, reviewCfg.APIKey, false),
+				log.New(os.Stdout, "reviewer: ", log.LstdFlags|log.Lmsgprefix),
+			)
+			if err != nil {
+				logging.Event(log.Default(), "reviewer_disabled", "error", err)
+				reviewService = nil
+			} else {
+				go func() {
+					if err := reviewService.Run(ctx, reviewCfg.RefreshInterval); err != nil && !errors.Is(err, context.Canceled) {
+						logging.Event(log.Default(), "reviewer_exit", "error", err)
+					}
+				}()
+			}
+		}
+	}
+
 	var controlErrCh chan error
 	if cfg.Control.Bind != "" && !runOnce {
 		server := control.New(cfg.Control.Bind, cfg.Control.FallbackBind, runner, log.New(os.Stdout, "control: ", log.LstdFlags|log.Lmsgprefix))
+		server.MountReviewer(reviewService)
 		controlErrCh = make(chan error, 1)
 		go func() {
 			controlErrCh <- server.Run(ctx)

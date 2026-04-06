@@ -13,6 +13,7 @@ import (
 
 	"stash-scanner/internal/app"
 	"stash-scanner/internal/logging"
+	"stash-scanner/internal/review"
 )
 
 //go:embed ui/*
@@ -30,6 +31,7 @@ type Server struct {
 	fallbackAddr string
 	logger       *log.Logger
 	runner       Runner
+	reviewer     *review.Service
 	http         *http.Server
 }
 
@@ -59,6 +61,18 @@ func New(addr, fallbackAddr string, runner Runner, logger *log.Logger) *Server {
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/flush-debounce", s.handleFlushDebounce)
 	return s
+}
+
+func (s *Server) MountReviewer(service *review.Service) {
+	if service == nil {
+		return
+	}
+	s.reviewer = service
+	mux, ok := s.http.Handler.(*http.ServeMux)
+	if !ok {
+		return
+	}
+	review.RegisterRoutes(mux, "/reviewer/", service)
 }
 
 func (s *Server) Run(ctx context.Context) error {
