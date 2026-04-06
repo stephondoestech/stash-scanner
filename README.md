@@ -150,7 +150,9 @@ API:
 - `dry_run=true` means the scanner logs what it would do but does not send a real scan request to Stash.
 - `dry_run=false` sends real `metadataScan` requests to Stash.
 - `debug=true` enables verbose operational logging for troubleshooting.
-- `post_scan_tasks=auto_tag,identify` will run those tasks after a successful scan; `identify` requires at least one configured identify source.
+- a successful debounce target run always performs the selective `metadataScan` first; post-scan tasks then run in this order: `identify`, `auto_tag`, `clean`
+- `identify` now auto-discovers sources from Stash when local `STASH_SCANNER_IDENTIFY_*` overrides are not set. It first uses Stash's configured default identify sources; if those are empty, it falls back to configured stash-box endpoints plus installed scene scrapers that support fragment identification.
+- `post_scan_tasks=auto_tag,identify` still works, but task execution is normalized to `identify` before `auto_tag`
 - if the control port cannot bind, the app either uses `control.fallback_bind` or exits with a clear error.
 - the Docker image defaults `STASH_SCANNER_STATE_PATH` to `/config/state.json`, so mount a writable host path to `/config` for persistence.
 - scheduled mode waits for the first configured interval or daily time; it does not auto-run a scan immediately on service startup
