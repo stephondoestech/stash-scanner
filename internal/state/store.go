@@ -24,6 +24,13 @@ type Snapshot struct {
 	LastSuccessAt   time.Time            `json:"last_success_at"`
 }
 
+type SnapshotMetadata struct {
+	PendingScan     PendingScan     `json:"pending_scan"`
+	PendingDebounce PendingDebounce `json:"pending_debounce"`
+	LastRunAt       time.Time       `json:"last_run_at"`
+	LastSuccessAt   time.Time       `json:"last_success_at"`
+}
+
 type PendingScan struct {
 	Paths         []string  `json:"paths"`
 	AttemptCount  int       `json:"attempt_count"`
@@ -82,5 +89,32 @@ func (s *Store) Save(snapshot Snapshot) error {
 		return fmt.Errorf("write state file: %w", err)
 	}
 
+	metadata, err := json.MarshalIndent(metadataFromSnapshot(snapshot), "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode metadata file: %w", err)
+	}
+
+	if err := os.WriteFile(s.metadataPath(), metadata, 0o644); err != nil {
+		return fmt.Errorf("write metadata file: %w", err)
+	}
+
 	return nil
+}
+
+func metadataFromSnapshot(snapshot Snapshot) SnapshotMetadata {
+	return SnapshotMetadata{
+		PendingScan:     snapshot.PendingScan,
+		PendingDebounce: snapshot.PendingDebounce,
+		LastRunAt:       snapshot.LastRunAt,
+		LastSuccessAt:   snapshot.LastSuccessAt,
+	}
+}
+
+func (s *Store) metadataPath() string {
+	ext := filepath.Ext(s.path)
+	if ext == "" {
+		return s.path + ".meta"
+	}
+	base := s.path[:len(s.path)-len(ext)]
+	return base + ".meta" + ext
 }
