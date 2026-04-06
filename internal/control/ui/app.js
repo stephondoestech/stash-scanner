@@ -43,6 +43,8 @@ const els = {
 };
 
 let lastLoadedAt = null;
+let lastStatus = null;
+let refreshTimer = null;
 let pollTimer = null;
 
 function fmt(value) {
@@ -216,9 +218,41 @@ async function loadStatus() {
   const res = await fetch("/api/status");
   if (!res.ok) throw new Error(await res.text());
   const status = await res.json();
+  lastStatus = status;
   lastLoadedAt = new Date();
   render(status);
   updatePollState();
+}
+
+function handleLoadError(err) {
+  els.statusText.textContent = String(err);
+  els.statusDot.className = "dot warn";
+}
+
+function refreshIntervalMs() {
+  if (document.hidden) return 0;
+  if (lastStatus && lastStatus.running) return 5000;
+  return 60000;
+}
+
+function clearRefreshTimer() {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  }
+}
+
+function scheduleRefresh(delay = refreshIntervalMs()) {
+  clearRefreshTimer();
+  if (delay <= 0) return;
+  refreshTimer = setTimeout(async () => {
+    try {
+      await loadStatus();
+    } catch (err) {
+      handleLoadError(err);
+    }
+    scheduleRefresh();
+  }, delay);
 }
 
 els.runNow.addEventListener("click", async () => {
@@ -249,25 +283,35 @@ els.stopRun.addEventListener("click", async () => {
 });
 
 function updatePollState() {
+  if (document.hidden) {
+    els.pollState.textContent = lastLoadedAt ? `Paused while tab is hidden, last refreshed ${fmtRelative(lastLoadedAt)}` : "Paused while tab is hidden";
+    return;
+  }
   els.pollState.textContent = lastLoadedAt ? `Last refreshed ${fmtRelative(lastLoadedAt)}` : "Waiting for first refresh";
 }
 
 async function boot() {
   try {
     await loadStatus();
-    setInterval(async () => {
-      try {
-        await loadStatus();
-      } catch (err) {
-        els.statusText.textContent = String(err);
-        els.statusDot.className = "dot warn";
-      }
-    }, 10000);
+    scheduleRefresh();
     pollTimer = setInterval(updatePollState, 1000);
   } catch (err) {
-    els.statusText.textContent = String(err);
-    els.statusDot.className = "dot warn";
+    handleLoadError(err);
   }
 }
+
+document.addEventListener("visibilitychange", async () => {
+  updatePollState();
+  if (document.hidden) {
+    clearRefreshTimer();
+    return;
+  }
+  try {
+    await loadStatus();
+  } catch (err) {
+    handleLoadError(err);
+  }
+  scheduleRefresh();
+});
 
 boot();

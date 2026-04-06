@@ -12,6 +12,7 @@
 
 # Go build and test outputs
 .cache/
+.gocache/
 bin/
 dist/
 coverage.out

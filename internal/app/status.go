@@ -54,7 +54,7 @@ type Status struct {
 }
 
 func (r *Runner) Status(_ context.Context) (Status, error) {
-	snapshot, err := r.store.Load()
+	metadata, err := r.store.LoadMetadata()
 	if err != nil {
 		return Status{}, err
 	}
@@ -68,10 +68,10 @@ func (r *Runner) Status(_ context.Context) (Status, error) {
 		Running:             r.running,
 		CurrentRun:          r.currentRun,
 		LastRun:             r.lastSummary,
-		PendingScan:         snapshot.PendingScan,
-		PendingDebounce:     snapshot.PendingDebounce,
-		LastRunAt:           snapshot.LastRunAt,
-		LastSuccess:         snapshot.LastSuccessAt,
+		PendingScan:         metadata.PendingScan,
+		PendingDebounce:     metadata.PendingDebounce,
+		LastRunAt:           metadata.LastRunAt,
+		LastSuccess:         metadata.LastSuccessAt,
 		WatchRoots:          append([]string{}, r.cfg.WatchRoots...),
 		WatchRootsFromStash: r.cfg.WatchRootsFromStash,
 		DryRun:              r.cfg.DryRun,

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -56,6 +57,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	if got, want := output.PendingScan.AttemptCount, 0; got != want {
 		t.Fatalf("pending attempt count mismatch: got %d want %d", got, want)
 	}
+
 }
 
 func TestSaveAndLoadPendingScanRoundTrip(t *testing.T) {
@@ -118,6 +120,82 @@ func TestSaveAndLoadPendingDebounceRoundTrip(t *testing.T) {
 
 	if got, want := output.PendingDebounce.ReadyAt, input.PendingDebounce.ReadyAt; !got.Equal(want) {
 		t.Fatalf("pending debounce ready time mismatch: got %s want %s", got, want)
+	}
+}
+
+func TestLoadMetadataReadsSidecarWithoutPaths(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "data", "state.json"))
+	now := time.Now().UTC().Round(time.Second)
+	input := Snapshot{
+		Paths: map[string]PathState{
+			"/media/example.mp4": {
+				Path:        "/media/example.mp4",
+				Size:        123,
+				ModifiedAt:  now,
+				FirstSeenAt: now.Add(-time.Hour),
+				LastSeenAt:  now,
+			},
+		},
+		PendingScan: PendingScan{
+			Paths:        []string{"/media/example"},
+			AttemptCount: 1,
+		},
+		PendingDebounce: PendingDebounce{
+			Paths: []string{"/media/debounce"},
+		},
+		LastRunAt:     now,
+		LastSuccessAt: now,
+	}
+
+	if err := store.Save(input); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	metadata, err := store.LoadMetadata()
+	if err != nil {
+		t.Fatalf("LoadMetadata: %v", err)
+	}
+
+	if got, want := len(metadata.PendingScan.Paths), 1; got != want {
+		t.Fatalf("pending scan count mismatch: got %d want %d", got, want)
+	}
+
+	if got, want := len(metadata.PendingDebounce.Paths), 1; got != want {
+		t.Fatalf("pending debounce count mismatch: got %d want %d", got, want)
+	}
+
+	if got, want := metadata.LastSuccessAt, now; !got.Equal(want) {
+		t.Fatalf("last success mismatch: got %s want %s", got, want)
+	}
+}
+
+func TestLoadMetadataFallsBackToFullStateWhenSidecarIsMissing(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "data", "state.json"))
+	now := time.Now().UTC().Round(time.Second)
+	input := Snapshot{
+		Paths: map[string]PathState{},
+		PendingScan: PendingScan{
+			Paths:        []string{"/media/example"},
+			AttemptCount: 2,
+		},
+		LastRunAt: now,
+	}
+
+	if err := store.Save(input); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	if err := os.Remove(store.metadataPath()); err != nil {
+		t.Fatalf("remove metadata sidecar: %v", err)
+	}
+
+	metadata, err := store.LoadMetadata()
+	if err != nil {
+		t.Fatalf("LoadMetadata: %v", err)
+	}
+
+	if got, want := metadata.PendingScan.AttemptCount, 2; got != want {
+		t.Fatalf("pending attempt count mismatch: got %d want %d", got, want)
 	}
 }
 
