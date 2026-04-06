@@ -17,6 +17,7 @@ import (
 	"stash-scanner/internal/review"
 	"stash-scanner/internal/stash"
 	"stash-scanner/internal/state"
+	"stash-scanner/internal/version"
 )
 
 func main() {
@@ -61,6 +62,8 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	logging.Event(log.Default(), "build_info", "version", version.Current(), "commit", version.Commit())
 
 	runner, err := app.NewRunner(cfg, log.New(os.Stdout, "scanner: ", log.LstdFlags|log.Lmsgprefix))
 	if err != nil {
