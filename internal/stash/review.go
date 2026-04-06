@@ -272,5 +272,5 @@ func isUnsupportedFieldError(err error, field string) bool {
 		return false
 	}
 	message := err.Error()
-	return strings.Contains(message, "Cannot query field") && strings.Contains(message, `"`+field+`"`)
+	return strings.Contains(message, "Cannot query field") && (strings.Contains(message, `"`+field+`"`) || strings.Contains(message, `\"`+field+`\"`))
 }
