@@ -29,24 +29,45 @@ func (c *Config) validatePostScan() error {
 	}
 
 	normalized := make([]string, 0, len(c.PostScan.Tasks))
+	seen := make(map[string]struct{}, len(c.PostScan.Tasks))
 	for _, task := range c.PostScan.Tasks {
 		name := normalizePostScanTask(task)
 		switch name {
 		case "auto_tag", "identify", "clean":
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
 			normalized = append(normalized, name)
 		default:
 			return fmt.Errorf("unsupported post_scan task %q", task)
 		}
 	}
-	c.PostScan.Tasks = normalized
+	c.PostScan.Tasks = orderedPostScanTasks(normalized)
 
 	for _, task := range c.PostScan.Tasks {
-		if task == "identify" && len(c.PostScan.IdentifyStashBoxIndexes) == 0 && len(c.PostScan.IdentifyStashBoxEndpoints) == 0 && len(c.PostScan.IdentifyScraperIDs) == 0 {
-			return fmt.Errorf("identify post_scan task requires at least one identify source")
+		if task == "identify" && !c.PostScan.HasIdentifySources() && (strings.TrimSpace(c.StashURL) == "" || strings.TrimSpace(c.APIKey) == "") {
+			return fmt.Errorf("identify post_scan task requires configured identify sources or stash_url/api_key for source discovery")
 		}
 	}
 
 	return nil
+}
+
+func (p PostScan) HasIdentifySources() bool {
+	return len(p.IdentifyStashBoxIndexes) > 0 || len(p.IdentifyStashBoxEndpoints) > 0 || len(p.IdentifyScraperIDs) > 0
+}
+
+func orderedPostScanTasks(tasks []string) []string {
+	ordered := make([]string, 0, len(tasks))
+	for _, name := range []string{"identify", "auto_tag", "clean"} {
+		for _, task := range tasks {
+			if task == name {
+				ordered = append(ordered, task)
+			}
+		}
+	}
+	return ordered
 }
 
 func normalizePostScanTask(value string) string {

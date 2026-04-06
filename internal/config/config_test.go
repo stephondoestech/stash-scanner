@@ -110,6 +110,18 @@ func TestLoadConfigFromEnvOverrides(t *testing.T) {
 		t.Fatalf("post scan task count mismatch: got %d want %d", got, want)
 	}
 
+	if got, want := cfg.PostScan.Tasks[0], "identify"; got != want {
+		t.Fatalf("post scan task order[0] mismatch: got %q want %q", got, want)
+	}
+
+	if got, want := cfg.PostScan.Tasks[1], "auto_tag"; got != want {
+		t.Fatalf("post scan task order[1] mismatch: got %q want %q", got, want)
+	}
+
+	if got, want := cfg.PostScan.Tasks[2], "clean"; got != want {
+		t.Fatalf("post scan task order[2] mismatch: got %q want %q", got, want)
+	}
+
 	if got, want := len(cfg.PostScan.IdentifyStashBoxIndexes), 2; got != want {
 		t.Fatalf("identify source count mismatch: got %d want %d", got, want)
 	}
@@ -174,6 +186,8 @@ func TestValidateRejectsIdentifyTaskWithoutSources(t *testing.T) {
 	cfg := Config{
 		WatchRoots: []string{"/tmp/media"},
 		StatePath:  "data/state.json",
+		StashURL:   "",
+		APIKey:     "",
 		PostScan: PostScan{
 			Tasks: []string{"identify"},
 		},
@@ -189,5 +203,29 @@ func TestValidateRejectsIdentifyTaskWithoutSources(t *testing.T) {
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected identify source validation error")
+	}
+}
+
+func TestValidateAllowsIdentifyTaskWithoutLocalSourcesWhenStashDiscoveryIsAvailable(t *testing.T) {
+	cfg := Config{
+		WatchRoots: []string{"/tmp/media"},
+		StatePath:  "data/state.json",
+		StashURL:   "http://localhost:9999",
+		APIKey:     "secret",
+		PostScan: PostScan{
+			Tasks: []string{"identify"},
+		},
+		Retry: Retry{
+			MaxAttempts:    1,
+			InitialBackoff: Duration{Duration: 10 * time.Second},
+			MaxBackoff:     Duration{Duration: time.Minute},
+		},
+		Schedule: Schedule{
+			Interval: Duration{Duration: 15 * time.Minute},
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
 	}
 }

@@ -28,6 +28,14 @@ func (c *Client) TriggerPostScanTask(ctx context.Context, task PostScanTask, pat
 		return "", nil
 	}
 
+	if task == PostScanIdentify {
+		resolved, err := c.resolveIdentifyConfig(ctx, cfg)
+		if err != nil {
+			return "", err
+		}
+		cfg = resolved
+	}
+
 	endpoint, err := normalizeEndpoint(c.url)
 	if err != nil {
 		return "", err

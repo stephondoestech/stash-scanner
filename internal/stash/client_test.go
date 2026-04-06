@@ -177,6 +177,84 @@ func TestTriggerPostScanTaskIdentifyIncludesSources(t *testing.T) {
 	}
 }
 
+func TestTriggerPostScanTaskIdentifyDiscoversSourcesFromDefaults(t *testing.T) {
+	var queries []string
+
+	client := NewClient("http://stash.local", "secret-key", false)
+	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var req gqlRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		queries = append(queries, req.Query)
+
+		if strings.Contains(req.Query, "listScrapers(types: [SCENE])") {
+			return jsonResponse(`{"data":{"configuration":{"general":{"stashBoxes":[{"endpoint":"https://stashdb.org/graphql"}]},"defaults":{"identify":{"sources":[{"source":{"stash_box_endpoint":"https://fansdb.cc/graphql","scraper_id":null}},{"source":{"stash_box_endpoint":null,"scraper_id":"builtin-json"}},{"source":{"stash_box_endpoint":"https://fansdb.cc/graphql","scraper_id":null}}]}}},"listScrapers":[]}}`), nil
+		}
+
+		return jsonResponse(`{"data":{"metadataIdentify":"job-345"}}`), nil
+	})}
+
+	_, err := client.TriggerPostScanTask(context.Background(), PostScanIdentify, []string{"/media/library/scene"}, config.PostScan{})
+	if err != nil {
+		t.Fatalf("TriggerPostScanTask: %v", err)
+	}
+
+	if got, want := len(queries), 2; got != want {
+		t.Fatalf("query count mismatch: got %d want %d", got, want)
+	}
+
+	if !strings.Contains(queries[1], `stash_box_endpoint: "https://fansdb.cc/graphql"`) || !strings.Contains(queries[1], `scraper_id: "builtin-json"`) {
+		t.Fatalf("expected discovered identify sources in mutation, got %q", queries[1])
+	}
+}
+
+func TestTriggerPostScanTaskIdentifyFallsBackToConfiguredStashBoxesAndScrapers(t *testing.T) {
+	var queries []string
+
+	client := NewClient("http://stash.local", "secret-key", false)
+	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var req gqlRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		queries = append(queries, req.Query)
+
+		if strings.Contains(req.Query, "listScrapers(types: [SCENE])") {
+			return jsonResponse(`{"data":{"configuration":{"general":{"stashBoxes":[{"endpoint":"https://stashdb.org/graphql"},{"endpoint":"https://theporndb.net/graphql"}]},"defaults":{"identify":{"sources":[]}}},"listScrapers":[{"id":"zeta","name":"Zeta","scene":{"supported_scrapes":["NAME"]}},{"id":"alpha","name":"Alpha","scene":{"supported_scrapes":["FRAGMENT","NAME"]}},{"id":"beta","name":"Beta","scene":{"supported_scrapes":["FRAGMENT"]}}]}}`), nil
+		}
+
+		return jsonResponse(`{"data":{"metadataIdentify":"job-345"}}`), nil
+	})}
+
+	_, err := client.TriggerPostScanTask(context.Background(), PostScanIdentify, []string{"/media/library/scene"}, config.PostScan{})
+	if err != nil {
+		t.Fatalf("TriggerPostScanTask: %v", err)
+	}
+
+	if got, want := len(queries), 2; got != want {
+		t.Fatalf("query count mismatch: got %d want %d", got, want)
+	}
+
+	if !strings.Contains(queries[1], `stash_box_endpoint: "https://stashdb.org/graphql"`) || !strings.Contains(queries[1], `stash_box_endpoint: "https://theporndb.net/graphql"`) {
+		t.Fatalf("expected configured stash boxes in mutation, got %q", queries[1])
+	}
+
+	alpha := strings.Index(queries[1], `scraper_id: "alpha"`)
+	beta := strings.Index(queries[1], `scraper_id: "beta"`)
+	if alpha == -1 || beta == -1 || alpha > beta {
+		t.Fatalf("expected fragment scrapers sorted into mutation, got %q", queries[1])
+	}
+}
+
 func TestLibraryRootsReturnsPaths(t *testing.T) {
 	client := NewClient("http://stash.local", "secret-key", false)
 	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {

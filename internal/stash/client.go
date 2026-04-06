@@ -133,8 +133,28 @@ type gqlResponse struct {
 				Stashes []struct {
 					Path string `json:"path"`
 				} `json:"stashes"`
+				StashBoxes []struct {
+					Endpoint string `json:"endpoint"`
+				} `json:"stashBoxes"`
 			} `json:"general"`
+			Defaults struct {
+				Identify struct {
+					Sources []struct {
+						Source struct {
+							StashBoxEndpoint string `json:"stash_box_endpoint"`
+							ScraperID        string `json:"scraper_id"`
+						} `json:"source"`
+					} `json:"sources"`
+				} `json:"identify"`
+			} `json:"defaults"`
 		} `json:"configuration"`
+		ListScrapers []struct {
+			ID    string `json:"id"`
+			Name  string `json:"name"`
+			Scene *struct {
+				SupportedScrapes []string `json:"supported_scrapes"`
+			} `json:"scene"`
+		} `json:"listScrapers"`
 	} `json:"data"`
 	Errors []gqlError `json:"errors"`
 }
