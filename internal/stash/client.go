@@ -155,6 +155,39 @@ type gqlResponse struct {
 				SupportedScrapes []string `json:"supported_scrapes"`
 			} `json:"scene"`
 		} `json:"listScrapers"`
+		FindScenes struct {
+			Count  int `json:"count"`
+			Scenes []struct {
+				ID         string `json:"id"`
+				Title      string `json:"title"`
+				Details    string `json:"details"`
+				Files      []struct{ Path string `json:"path"` } `json:"files"`
+				Performers []struct{ ID string `json:"id"` } `json:"performers"`
+				Tags       []struct{ Name string `json:"name"` } `json:"tags"`
+				Studio     *struct{ Name string `json:"name"` } `json:"studio"`
+			} `json:"scenes"`
+		} `json:"findScenes"`
+		FindGalleries struct {
+			Count     int `json:"count"`
+			Galleries []struct {
+				ID         string `json:"id"`
+				Title      string `json:"title"`
+				Details    string `json:"details"`
+				Files      []struct{ Path string `json:"path"` } `json:"files"`
+				Performers []struct{ ID string `json:"id"` } `json:"performers"`
+				Tags       []struct{ Name string `json:"name"` } `json:"tags"`
+				Studio     *struct{ Name string `json:"name"` } `json:"studio"`
+			} `json:"galleries"`
+		} `json:"findGalleries"`
+		FindPerformers struct {
+			Count      int `json:"count"`
+			Performers []struct {
+				ID        string   `json:"id"`
+				Name      string   `json:"name"`
+				Aliases   []string `json:"aliases"`
+				ImagePath string   `json:"image_path"`
+			} `json:"performers"`
+		} `json:"findPerformers"`
 	} `json:"data"`
 	Errors []gqlError `json:"errors"`
 }

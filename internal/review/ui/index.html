@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stash Reviewer</title>
+  <style>
+    :root { color-scheme: light; --bg:#f4f0e8; --panel:#fffdfa; --ink:#1d1a16; --muted:#665e56; --line:#d7cab7; --accent:#8c3b2b; --accent-soft:#f5ddd6; --ok:#2a6b51; --ok-soft:#deefe7; --shadow:0 20px 40px rgba(29,26,22,.08); font-family:"IBM Plex Sans","Avenir Next",sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:linear-gradient(180deg,#efe4d5,#f8f5ef 48%,#e6eee8); }
+    main { max-width:1280px; margin:0 auto; padding:28px 18px 42px; }
+    h1 { margin:0; font-size:2.5rem; letter-spacing:-0.05em; }
+    p { color:var(--muted); }
+    button { border:0; border-radius:999px; background:var(--accent); color:#fff; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; }
+    button[disabled] { opacity:.6; cursor:not-allowed; }
+    .hero, .status, .stats, .layout { display:grid; gap:16px; }
+    .hero { grid-template-columns:1.8fr auto; align-items:start; }
+    .status { grid-template-columns:auto 1fr auto; align-items:center; margin:20px 0; padding:14px 16px; border:1px solid var(--line); border-radius:18px; background:rgba(255,253,250,.84); box-shadow:var(--shadow); }
+    .dot { width:12px; height:12px; border-radius:50%; background:#b3a48f; }
+    .dot.live { background:var(--accent); box-shadow:0 0 0 8px rgba(140,59,43,.12); }
+    .stats { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); margin-bottom:18px; }
+    .card, .panel { background:var(--panel); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow); }
+    .card { padding:18px; }
+    .label { text-transform:uppercase; letter-spacing:.1em; font-size:.78rem; color:var(--muted); }
+    .value { margin-top:10px; font-size:1.8rem; font-weight:700; }
+    .sub { margin-top:8px; color:var(--muted); font-size:.93rem; }
+    .layout { grid-template-columns:minmax(320px,.95fr) minmax(0,1.4fr); align-items:start; }
+    .panel { padding:18px; min-height:540px; }
+    .list { display:grid; gap:12px; max-height:720px; overflow:auto; padding-right:6px; }
+    .item { border:1px solid rgba(215,202,183,.85); border-radius:18px; padding:14px; background:#fff; cursor:pointer; }
+    .item.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(140,59,43,.1); }
+    .pill { display:inline-flex; padding:6px 10px; border-radius:999px; font-size:.78rem; font-weight:700; background:var(--accent-soft); color:var(--accent); }
+    .pill.ok { background:var(--ok-soft); color:var(--ok); }
+    .mono { font-family:"IBM Plex Mono","SFMono-Regular",monospace; font-size:.85rem; }
+    .kv { display:grid; gap:10px; margin:16px 0; }
+    .row { display:flex; gap:12px; justify-content:space-between; }
+    .row strong { font-size:.92rem; }
+    .row span { color:var(--muted); text-align:right; }
+    .candidates { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); margin-top:18px; }
+    .candidate { border:1px solid rgba(215,202,183,.85); border-radius:20px; overflow:hidden; background:#fff; }
+    .candidate img { display:block; width:100%; aspect-ratio:1/1; object-fit:cover; background:#ece3d7; }
+    .candidate-body { padding:14px; }
+    .reason { color:var(--muted); font-size:.88rem; }
+    .empty { color:var(--muted); padding:10px 0; }
+    @media (max-width: 900px) {
+      .hero, .layout { grid-template-columns:1fr; }
+      .status { grid-template-columns:auto 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div>
+        <h1>Performer Reviewer</h1>
+        <p>Read-only queue for scenes and galleries with no performers. Review likely performer matches before any write-back workflow exists.</p>
+      </div>
+      <div><button id="refresh">Refresh Queue</button></div>
+    </section>
+    <section class="status">
+      <span id="dot" class="dot"></span>
+      <strong id="status-text">Loading</strong>
+      <span id="refreshed" class="sub">Waiting for first refresh</span>
+    </section>
+    <section class="stats">
+      <article class="card"><div class="label">Items</div><div id="item-count" class="value">-</div><div class="sub">Scenes and galleries missing performers</div></article>
+      <article class="card"><div class="label">Needs Review</div><div id="review-count" class="value">-</div><div class="sub">Has candidate performers</div></article>
+      <article class="card"><div class="label">No Candidate</div><div id="empty-count" class="value">-</div><div class="sub">No likely performer yet</div></article>
+    </section>
+    <section class="layout">
+      <article class="panel">
+        <div class="label">Queue</div>
+        <div id="queue" class="list"></div>
+        <div id="queue-empty" class="empty">No review items loaded.</div>
+      </article>
+      <article class="panel">
+        <div class="label">Detail</div>
+        <div id="detail-empty" class="empty">Select an item to inspect likely performer candidates.</div>
+        <div id="detail" hidden>
+          <div id="detail-title" class="value">-</div>
+          <div id="detail-status" class="sub">-</div>
+          <div class="kv">
+            <div class="row"><strong>Type</strong><span id="detail-type">-</span></div>
+            <div class="row"><strong>Path</strong><span id="detail-path" class="mono">-</span></div>
+            <div class="row"><strong>Studio</strong><span id="detail-studio">-</span></div>
+            <div class="row"><strong>Tags</strong><span id="detail-tags">-</span></div>
+          </div>
+          <p id="detail-body" class="sub"></p>
+          <div id="candidates" class="candidates"></div>
+        </div>
+      </article>
+    </section>
+  </main>
+  <script src="/ui/app.js"></script>
+</body>
+</html>

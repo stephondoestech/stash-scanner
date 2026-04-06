@@ -3,7 +3,7 @@ IMAGE ?= stash-scanner:dev
 VERSION_FILE ?= VERSION
 VERSION := $(shell cat $(VERSION_FILE))
 
-.PHONY: fmt test run run-ui run-once docker-build clean docker-clean version check-version set-version tag release-patch release-minor release-major list-releases
+.PHONY: fmt test run run-ui run-once run-reviewer docker-build clean docker-clean version check-version set-version tag release-patch release-minor release-major list-releases
 
 fmt:
 	GOCACHE=$(GOCACHE) gofmt -w ./cmd ./internal
@@ -19,6 +19,9 @@ run-ui:
 
 run-once:
 	GOCACHE=$(GOCACHE) go run ./cmd/scanner -once
+
+run-reviewer:
+	GOCACHE=$(GOCACHE) go run ./cmd/reviewer
 
 docker-build:
 	docker build -t $(IMAGE) .

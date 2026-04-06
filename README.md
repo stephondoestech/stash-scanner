@@ -67,6 +67,16 @@ make run-ui
 http://127.0.0.1:8088/
 ```
 
+Reviewer UI:
+
+```sh
+make run-reviewer
+```
+
+```text
+http://127.0.0.1:8090/
+```
+
 ## First Run Warning
 
 Before the first real scanner run, make sure your Stash instance has recently scanned the same library paths and already knows about the files on disk.
@@ -120,12 +130,21 @@ Optional:
 - `STASH_SCANNER_RETRY_INITIAL_BACKOFF` - how long to wait before the first retry
 - `STASH_SCANNER_RETRY_MAX_BACKOFF` - the longest retry delay the scanner will use
 
+Reviewer runtime:
+
+- `STASH_REVIEWER_STASH_URL` - optional override for the reviewer Stash URL; falls back to `STASH_SCANNER_STASH_URL`
+- `STASH_REVIEWER_API_KEY` - optional override for the reviewer API key; falls back to `STASH_SCANNER_API_KEY`
+- `STASH_REVIEWER_BIND` - bind address for the reviewer UI, default `127.0.0.1:8090`
+- `STASH_REVIEWER_QUEUE_PATH` - where the reviewer stores its local queue snapshot, default `data/reviewer-queue.json`
+- `STASH_REVIEWER_REFRESH_INTERVAL` - optional background refresh interval; by default the reviewer refreshes once at startup and on manual request only
+
 ## Commands
 
 ```sh
 make run-ui
 make run
 make run-once
+make run-reviewer
 go run ./cmd/scanner -requeue-paths /path/one,/path/two
 make test
 make docker-build
@@ -167,3 +186,4 @@ API:
 
 - Current state file grows with the size of the Stash instance so it can easily exceed 1 GB or more. Will work on solving this in a future release. 
 - If the first run happened before Stash was fully up to date, files may exist in the scanner state but still be missing from Stash. To recover, delete the relevant entries from the state file so the scanner can rediscover them, or run a Stash scan that covers those paths directly.
+- The reviewer candidate engine is intentionally heuristic and read-only in this phase. It suggests likely performers using title, path, and alias overlap, but it does not write changes back to Stash yet.
