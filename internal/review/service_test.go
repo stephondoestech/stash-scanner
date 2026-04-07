@@ -329,3 +329,73 @@ func TestSearchPerformersReturnsManualMatches(t *testing.T) {
 		t.Fatalf("performer id mismatch: got %q want %q", got, want)
 	}
 }
+
+func TestSetReviewStateBulkUpdatesMultipleItems(t *testing.T) {
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		&fakeStashClient{
+			scenes: []stash.MediaItem{
+				{ID: "scene-1", Title: "Jane Doe backstage", Path: "/media/jane-1.mp4"},
+				{ID: "scene-2", Title: "Jane Doe stage", Path: "/media/jane-2.mp4"},
+			},
+			performers: []stash.Performer{{ID: "perf-1", Name: "Jane Doe"}},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	if err := service.SetReviewStateBulk([]string{"scene-1", "scene-2"}, ReviewSkipped); err != nil {
+		t.Fatalf("SetReviewStateBulk: %v", err)
+	}
+
+	status := service.Status()
+	if got, want := status.SkippedCount, 2; got != want {
+		t.Fatalf("skipped count mismatch: got %d want %d", got, want)
+	}
+	if got, want := status.ActiveCount, 0; got != want {
+		t.Fatalf("active count mismatch: got %d want %d", got, want)
+	}
+}
+
+func TestAssignCandidateBulkMarksMixedItemsResolved(t *testing.T) {
+	client := &fakeStashClient{
+		scenes: []stash.MediaItem{
+			{ID: "scene-1", Title: "Jane Doe backstage", Path: "/media/jane-1.mp4"},
+		},
+		galleries: []stash.MediaItem{
+			{ID: "gallery-1", Title: "Unknown gallery", Path: "/media/gallery-1"},
+		},
+		performers: []stash.Performer{{ID: "perf-1", Name: "Jane Doe"}},
+	}
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		client,
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	if err := service.AssignCandidateBulk(context.Background(), []string{"scene-1", "gallery-1"}, "perf-1"); err != nil {
+		t.Fatalf("AssignCandidateBulk: %v", err)
+	}
+
+	status := service.Status()
+	if got, want := status.ResolvedCount, 2; got != want {
+		t.Fatalf("resolved count mismatch: got %d want %d", got, want)
+	}
+	if got, want := strings.Join(client.sceneAssigns["scene-1"], ","), "perf-1"; got != want {
+		t.Fatalf("scene assignment mismatch: got %q want %q", got, want)
+	}
+	if got, want := strings.Join(client.galleryAssigns["gallery-1"], ","), "perf-1"; got != want {
+		t.Fatalf("gallery assignment mismatch: got %q want %q", got, want)
+	}
+}

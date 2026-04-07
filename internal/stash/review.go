@@ -56,6 +56,7 @@ type galleryRecord struct {
 	Title      string         `json:"title"`
 	Details    string         `json:"details"`
 	Path       string         `json:"path"`
+	Folder     *pathRef       `json:"folder"`
 	Files      []pathRef      `json:"files"`
 	Performers []performerRef `json:"performers"`
 	Tags       []tagRef       `json:"tags"`
@@ -87,7 +88,7 @@ func (c *Client) MissingPerformerScenes(ctx context.Context) ([]MediaItem, error
 }
 
 func (c *Client) MissingPerformerGalleries(ctx context.Context) ([]MediaItem, error) {
-	raw, _, err := c.allGalleryItems(ctx)
+	raw, err := c.allGalleryItems(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +102,7 @@ func (c *Client) MissingPerformerGalleries(ctx context.Context) ([]MediaItem, er
 			ID:           strings.TrimSpace(gallery.ID),
 			Title:        strings.TrimSpace(gallery.Title),
 			Details:      strings.TrimSpace(gallery.Details),
-			Path:         galleryPath(gallery.Path, gallery.Files),
+			Path:         galleryPath(gallery.Path, gallery.Folder, gallery.Files),
 			Tags:         tagNames(gallery.Tags),
 			Studio:       studioName(gallery.Studio),
 			PerformerIDs: performerIDs(gallery.Performers),
@@ -115,7 +116,7 @@ func (c *Client) AutoAssignGalleryPerformersFromScenePaths(ctx context.Context) 
 	if err != nil {
 		return 0, err
 	}
-	galleries, _, err := c.allGalleryItems(ctx)
+	galleries, err := c.allGalleryItems(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -145,7 +146,7 @@ func (c *Client) AutoAssignGalleryPerformersFromScenePaths(ctx context.Context) 
 		if len(gallery.Performers) > 0 {
 			continue
 		}
-		path := normalizeMediaPath(galleryPath(gallery.Path, gallery.Files))
+		path := normalizeMediaPath(galleryPath(gallery.Path, gallery.Folder, gallery.Files))
 		if path == "" {
 			continue
 		}
@@ -209,23 +210,30 @@ func (c *Client) allSceneItems(ctx context.Context) ([]sceneRecord, error) {
 	})
 }
 
-func (c *Client) allGalleryItems(ctx context.Context) ([]galleryRecord, bool, error) {
-	includePath := true
-	for {
+func (c *Client) allGalleryItems(ctx context.Context) ([]galleryRecord, error) {
+	queries := []string{
+		"id title details path folder { path } files { path } performers { id } tags { name } studio { name }",
+		"id title details folder { path } files { path } performers { id } tags { name } studio { name }",
+		"id title details path files { path } performers { id } tags { name } studio { name }",
+		"id title details files { path } performers { id } tags { name } studio { name }",
+	}
+	var lastErr error
+	for _, fields := range queries {
 		items, err := collectMediaPages(ctx, c, func(page, perPage int) string {
-			return buildFindGalleriesQuery(page, perPage, includePath)
+			return buildFindGalleriesQuery(page, perPage, fields)
 		}, func(response gqlResponse) ([]galleryRecord, int) {
 			return response.Data.FindGalleries.Galleries, response.Data.FindGalleries.Count
 		})
 		if err == nil {
-			return items, includePath, nil
+			return items, nil
 		}
-		if includePath && isUnsupportedFieldError(err, "path") {
-			includePath = false
+		if isUnsupportedFieldError(err, "path") || isUnsupportedFieldError(err, "folder") {
+			lastErr = err
 			continue
 		}
-		return nil, includePath, err
+		return nil, err
 	}
+	return nil, lastErr
 }
 
 func (c *Client) AssignGalleryPerformers(ctx context.Context, galleryID string, performerIDs []string) error {
@@ -296,17 +304,18 @@ func buildSceneUpdateMutation(sceneID string, performerIDs []string) string {
 	return "mutation { sceneUpdate(input: { id: " + quoteString(strings.TrimSpace(sceneID)) + ", performer_ids: [" + strings.Join(items, ", ") + "] }) { id } }"
 }
 
-func buildFindGalleriesQuery(page, perPage int, includePath bool) string {
-	fields := "id title details files { path } performers { id } tags { name } studio { name }"
-	if includePath {
-		fields = "id title details path files { path } performers { id } tags { name } studio { name }"
-	}
+func buildFindGalleriesQuery(page, perPage int, fields string) string {
 	return fmt.Sprintf("query { findGalleries(filter: { page: %d, per_page: %d }) { count galleries { %s } } }", page, perPage, fields)
 }
 
-func galleryPath(path string, files []pathRef) string {
+func galleryPath(path string, folder *pathRef, files []pathRef) string {
 	if trimmed := strings.TrimSpace(path); trimmed != "" {
 		return trimmed
+	}
+	if folder != nil {
+		if trimmed := strings.TrimSpace(folder.Path); trimmed != "" {
+			return trimmed
+		}
 	}
 	return firstPath(files)
 }

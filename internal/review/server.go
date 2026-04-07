@@ -97,6 +97,25 @@ func RegisterRoutes(mux *http.ServeMux, prefix string, service *Service) {
 		}
 		writeJSON(w, http.StatusAccepted, map[string]string{"status": "updated"})
 	})
+	mux.HandleFunc(base+"api/items/state-bulk", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			ItemIDs     []string    `json:"item_ids"`
+			ReviewState ReviewState `json:"review_state"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		if err := service.SetReviewStateBulk(payload.ItemIDs, payload.ReviewState); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "updated"})
+	})
 	mux.HandleFunc(base+"api/items/assign", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -111,6 +130,25 @@ func RegisterRoutes(mux *http.ServeMux, prefix string, service *Service) {
 			return
 		}
 		if err := service.AssignCandidate(r.Context(), strings.TrimSpace(payload.ItemID), strings.TrimSpace(payload.PerformerID)); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "assigned"})
+	})
+	mux.HandleFunc(base+"api/items/assign-bulk", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			ItemIDs     []string `json:"item_ids"`
+			PerformerID string   `json:"performer_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		if err := service.AssignCandidateBulk(r.Context(), payload.ItemIDs, strings.TrimSpace(payload.PerformerID)); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

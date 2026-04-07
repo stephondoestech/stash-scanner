@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -229,8 +230,13 @@ func (s *Service) CandidateImage(ctx context.Context, itemID, performerID string
 }
 
 func (s *Service) SetReviewState(itemID string, state ReviewState) error {
-	if itemID == "" {
-		return fmt.Errorf("item id is required")
+	return s.SetReviewStateBulk([]string{itemID}, state)
+}
+
+func (s *Service) SetReviewStateBulk(itemIDs []string, state ReviewState) error {
+	itemIDs = uniqueItemIDs(itemIDs)
+	if len(itemIDs) == 0 {
+		return fmt.Errorf("at least one item id is required")
 	}
 	if state != ReviewPending && state != ReviewSkipped {
 		return fmt.Errorf("unsupported review state %q", state)
@@ -239,25 +245,22 @@ func (s *Service) SetReviewState(itemID string, state ReviewState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	found := false
+	found := 0
 	now := s.now()
 	for i := range s.snapshot.Items {
-		if s.snapshot.Items[i].ID != itemID {
+		if !containsItemID(itemIDs, s.snapshot.Items[i].ID) {
 			continue
 		}
 		s.snapshot.Items[i].ReviewState = state
 		s.snapshot.Items[i].ReviewedAt = now
-		if state != ReviewResolved {
-			s.snapshot.Items[i].ResolvedAt = time.Time{}
-			if state == ReviewPending {
-				s.snapshot.Items[i].AssignedPerformerIDs = nil
-			}
+		s.snapshot.Items[i].ResolvedAt = time.Time{}
+		if state == ReviewPending {
+			s.snapshot.Items[i].AssignedPerformerIDs = nil
 		}
-		found = true
-		break
+		found++
 	}
-	if !found {
-		return fmt.Errorf("item %q not found", itemID)
+	if found == 0 {
+		return fmt.Errorf("no matching items found")
 	}
 	recountSnapshot(&s.snapshot)
 	if err := s.store.Save(s.snapshot); err != nil {
@@ -267,44 +270,65 @@ func (s *Service) SetReviewState(itemID string, state ReviewState) error {
 }
 
 func (s *Service) AssignCandidate(ctx context.Context, itemID, performerID string) error {
-	if itemID == "" || performerID == "" {
-		return fmt.Errorf("item id and performer id are required")
+	return s.AssignCandidateBulk(ctx, []string{itemID}, performerID)
+}
+
+func (s *Service) AssignCandidateBulk(ctx context.Context, itemIDs []string, performerID string) error {
+	itemIDs = uniqueItemIDs(itemIDs)
+	performerID = strings.TrimSpace(performerID)
+	if len(itemIDs) == 0 || performerID == "" {
+		return fmt.Errorf("item ids and performer id are required")
+	}
+
+	s.mu.RLock()
+	items := make([]QueueItem, 0, len(itemIDs))
+	for _, itemID := range itemIDs {
+		for _, item := range s.snapshot.Items {
+			if item.ID == itemID {
+				items = append(items, item)
+				break
+			}
+		}
+	}
+	s.mu.RUnlock()
+
+	if len(items) == 0 {
+		return fmt.Errorf("no matching items found")
+	}
+
+	for _, item := range items {
+		switch item.Type {
+		case SceneItem:
+			if err := s.client.AssignScenePerformers(ctx, item.ID, []string{performerID}); err != nil {
+				return err
+			}
+		case GalleryItem:
+			if err := s.client.AssignGalleryPerformers(ctx, item.ID, []string{performerID}); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported item type %q", item.Type)
+		}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	index := -1
-	var item QueueItem
-	for i := range s.snapshot.Items {
-		if s.snapshot.Items[i].ID == itemID {
-			index = i
-			item = s.snapshot.Items[i]
-			break
-		}
-	}
-	if index == -1 {
-		return fmt.Errorf("item %q not found", itemID)
-	}
-
-	switch item.Type {
-	case SceneItem:
-		if err := s.client.AssignScenePerformers(ctx, item.ID, []string{performerID}); err != nil {
-			return err
-		}
-	case GalleryItem:
-		if err := s.client.AssignGalleryPerformers(ctx, item.ID, []string{performerID}); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("unsupported item type %q", item.Type)
-	}
-
 	now := s.now()
-	s.snapshot.Items[index].ReviewState = ReviewResolved
-	s.snapshot.Items[index].ReviewedAt = now
-	s.snapshot.Items[index].ResolvedAt = now
-	s.snapshot.Items[index].AssignedPerformerIDs = []string{performerID}
+	updated := 0
+	for i := range s.snapshot.Items {
+		if !containsItemID(itemIDs, s.snapshot.Items[i].ID) {
+			continue
+		}
+		s.snapshot.Items[i].ReviewState = ReviewResolved
+		s.snapshot.Items[i].ReviewedAt = now
+		s.snapshot.Items[i].ResolvedAt = now
+		s.snapshot.Items[i].AssignedPerformerIDs = []string{performerID}
+		updated++
+	}
+	if updated == 0 {
+		return fmt.Errorf("no matching items found")
+	}
 	recountSnapshot(&s.snapshot)
 	if err := s.store.Save(s.snapshot); err != nil {
 		return err
@@ -355,4 +379,30 @@ func recountSnapshot(snapshot *Snapshot) {
 			snapshot.EmptyCount++
 		}
 	}
+}
+
+func uniqueItemIDs(itemIDs []string) []string {
+	out := make([]string, 0, len(itemIDs))
+	seen := make(map[string]struct{}, len(itemIDs))
+	for _, itemID := range itemIDs {
+		trimmed := strings.TrimSpace(itemID)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func containsItemID(itemIDs []string, target string) bool {
+	for _, itemID := range itemIDs {
+		if itemID == target {
+			return true
+		}
+	}
+	return false
 }

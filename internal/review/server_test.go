@@ -205,3 +205,71 @@ func TestPerformerSearchHandlerReturnsMatches(t *testing.T) {
 		t.Fatalf("performer id mismatch: got %q want %q", got, want)
 	}
 }
+
+func TestBulkStateHandlerUpdatesMultipleItems(t *testing.T) {
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		&fakeStashClient{
+			scenes: []stash.MediaItem{
+				{ID: "scene-1", Title: "Jane Doe scene", Path: "/media/jane-1.mp4"},
+				{ID: "scene-2", Title: "Jane Roe scene", Path: "/media/jane-2.mp4"},
+			},
+			performers: []stash.Performer{{ID: "perf-1", Name: "Jane"}},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	server := NewServer("127.0.0.1:0", service, log.New(io.Discard, "", 0))
+	req := httptest.NewRequest(http.MethodPost, "/api/items/state-bulk", strings.NewReader(`{"item_ids":["scene-1","scene-2"],"review_state":"skipped"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+	if got, want := service.Status().SkippedCount, 2; got != want {
+		t.Fatalf("skipped count mismatch: got %d want %d", got, want)
+	}
+}
+
+func TestBulkAssignHandlerMarksMultipleItemsResolved(t *testing.T) {
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		&fakeStashClient{
+			scenes: []stash.MediaItem{
+				{ID: "scene-1", Title: "Jane Doe scene", Path: "/media/jane-1.mp4"},
+			},
+			galleries: []stash.MediaItem{
+				{ID: "gallery-1", Title: "Jane Doe gallery", Path: "/media/gallery-1"},
+			},
+			performers: []stash.Performer{{ID: "perf-1", Name: "Jane Doe", ImageURL: "https://img/jane.jpg"}},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	server := NewServer("127.0.0.1:0", service, log.New(io.Discard, "", 0))
+	req := httptest.NewRequest(http.MethodPost, "/api/items/assign-bulk", strings.NewReader(`{"item_ids":["scene-1","gallery-1"],"performer_id":"perf-1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+	if got, want := service.Status().ResolvedCount, 2; got != want {
+		t.Fatalf("resolved count mismatch: got %d want %d", got, want)
+	}
+}

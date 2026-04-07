@@ -10,6 +10,11 @@ const els = {
   emptyCount: document.getElementById("empty-count"),
   queue: document.getElementById("queue"),
   queueEmpty: document.getElementById("queue-empty"),
+  selectVisible: document.getElementById("select-visible"),
+  clearSelection: document.getElementById("clear-selection"),
+  bulkSkip: document.getElementById("bulk-skip"),
+  bulkReopen: document.getElementById("bulk-reopen"),
+  selectionCount: document.getElementById("selection-count"),
   detail: document.getElementById("detail"),
   detailEmpty: document.getElementById("detail-empty"),
   detailTitle: document.getElementById("detail-title"),
@@ -39,6 +44,7 @@ let selectedID = "";
 let timer = null;
 let filter = "active";
 let manualSearchItemID = "";
+const selectedIDs = new Set();
 
 function fmt(value) {
   if (!value || value === "0001-01-01T00:00:00Z") return "Never";
@@ -70,6 +76,22 @@ function updateFilterButtons() {
   els.filterResolved.classList.toggle("active", filter === "resolved");
 }
 
+function selectedItemIDs() {
+  return Array.from(selectedIDs);
+}
+
+function visibleItems() {
+  return filteredItems(state.items || []);
+}
+
+function updateSelectionControls() {
+  const count = selectedIDs.size;
+  els.selectionCount.textContent = `${count} selected`;
+  els.clearSelection.disabled = count === 0;
+  els.bulkSkip.disabled = count === 0;
+  els.bulkReopen.disabled = count === 0;
+}
+
 function render(status) {
   state = status;
   const selected = pickSelected(status.items || []);
@@ -85,6 +107,7 @@ function render(status) {
   els.reviewCount.textContent = String(status.review_count || 0);
   els.emptyCount.textContent = String(status.empty_count || 0);
   updateFilterButtons();
+  updateSelectionControls();
   renderQueue(filteredItems(status.items || []));
   renderDetail(selected);
 }
@@ -93,22 +116,35 @@ function renderQueue(items) {
   els.queue.innerHTML = "";
   els.queueEmpty.style.display = items.length ? "none" : "block";
   for (const item of items) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "item" + (item.id === selectedID ? " active" : "");
-    button.innerHTML = `
-      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">
+    const card = document.createElement("div");
+    card.className = "item" + (item.id === selectedID ? " active" : "");
+    card.innerHTML = `
+      <div class="item-head">
+        <input class="selector" type="checkbox" aria-label="Select item" ${selectedIDs.has(item.id) ? "checked" : ""}>
         <strong>${escapeHTML(item.title || "(untitled)")}</strong>
         <span class="pill ${item.review_state === "skipped" ? "ok" : ""}">${escapeHTML(item.review_state || "pending")}</span>
       </div>
       <div class="sub">${escapeHTML(item.type)} • ${escapeHTML(item.status.replace("_", " "))} • ${item.candidate_count} candidates • score ${item.best_score}</div>
       <div class="sub mono">${escapeHTML(item.path || "-")}</div>
     `;
-    button.addEventListener("click", () => {
+    const checkbox = card.querySelector(".selector");
+    checkbox.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        selectedIDs.add(item.id);
+      } else {
+        selectedIDs.delete(item.id);
+      }
+      updateSelectionControls();
+      renderDetail(pickSelected(state.items || []));
+    });
+    card.addEventListener("click", () => {
       selectedID = item.id;
       render(state);
     });
-    els.queue.appendChild(button);
+    els.queue.appendChild(card);
   }
 }
 
@@ -153,11 +189,12 @@ function renderDetail(item) {
         <div class="candidate-body">
           <strong>${escapeHTML(candidate.name)}</strong>
           <div class="sub">Score ${candidate.score}</div>
-          <div class="reason">${escapeHTML((candidate.reasons || []).join(", ") || "no reason recorded")}</div>
-          <div style="margin-top:12px;">
-            <button type="button" class="assign-candidate" data-item-id="${escapeAttr(item.id)}" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" ? "disabled" : ""}>Assign</button>
-          </div>
+        <div class="reason">${escapeHTML((candidate.reasons || []).join(", ") || "no reason recorded")}</div>
+        <div style="margin-top:12px;">
+          <button type="button" class="assign-candidate" data-item-id="${escapeAttr(item.id)}" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" ? "disabled" : ""}>Assign</button>
+          <button type="button" class="assign-selected" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || selectedIDs.size === 0 ? "disabled" : ""}>Assign Selected</button>
         </div>
+      </div>
       `;
       els.candidates.appendChild(card);
     }
@@ -200,11 +237,31 @@ async function updateItemState(itemID, reviewState) {
   await loadStatus();
 }
 
+async function updateItemStateBulk(itemIDs, reviewState) {
+  const res = await fetch("api/items/state-bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_ids: itemIDs, review_state: reviewState }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  await loadStatus();
+}
+
 async function assignCandidate(itemID, performerID) {
   const res = await fetch("api/items/assign", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ item_id: itemID, performer_id: performerID }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  await loadStatus();
+}
+
+async function assignCandidateBulk(itemIDs, performerID) {
+  const res = await fetch("api/items/assign-bulk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_ids: itemIDs, performer_id: performerID }),
   });
   if (!res.ok) throw new Error(await res.text());
   await loadStatus();
@@ -223,6 +280,20 @@ function bindAssignButtons(root) {
       button.disabled = true;
       try {
         await assignCandidate(button.dataset.itemId, button.dataset.performerId);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+  for (const button of root.querySelectorAll(".assign-selected")) {
+    button.addEventListener("click", async () => {
+      const itemIDs = selectedItemIDs();
+      if (!itemIDs.length) return;
+      button.disabled = true;
+      try {
+        await assignCandidateBulk(itemIDs, button.dataset.performerId);
+        selectedIDs.clear();
+        updateSelectionControls();
       } finally {
         button.disabled = false;
       }
@@ -260,6 +331,7 @@ function renderManualSearchResults(item, results) {
         <div class="sub">${escapeHTML(aliases)}</div>
         <div style="margin-top:12px;">
           <button type="button" class="assign-candidate" data-item-id="${escapeAttr(item.id)}" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" ? "disabled" : ""}>Assign</button>
+          <button type="button" class="assign-selected" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || selectedIDs.size === 0 ? "disabled" : ""}>Assign Selected</button>
         </div>
       </div>
     `;
@@ -311,6 +383,16 @@ els.filterResolved.addEventListener("click", () => {
   filter = "resolved";
   render(state);
 });
+els.selectVisible.addEventListener("click", () => {
+  for (const item of visibleItems()) {
+    selectedIDs.add(item.id);
+  }
+  render(state);
+});
+els.clearSelection.addEventListener("click", () => {
+  selectedIDs.clear();
+  render(state);
+});
 els.skipItem.addEventListener("click", async () => {
   if (!selectedID) return;
   await updateItemState(selectedID, "skipped");
@@ -318,6 +400,20 @@ els.skipItem.addEventListener("click", async () => {
 els.reopenItem.addEventListener("click", async () => {
   if (!selectedID) return;
   await updateItemState(selectedID, "pending");
+});
+els.bulkSkip.addEventListener("click", async () => {
+  const itemIDs = selectedItemIDs();
+  if (!itemIDs.length) return;
+  await updateItemStateBulk(itemIDs, "skipped");
+  selectedIDs.clear();
+  render(state);
+});
+els.bulkReopen.addEventListener("click", async () => {
+  const itemIDs = selectedItemIDs();
+  if (!itemIDs.length) return;
+  await updateItemStateBulk(itemIDs, "pending");
+  selectedIDs.clear();
+  render(state);
 });
 els.manualSearchButton.addEventListener("click", async () => {
   const item = state.items?.find((entry) => entry.id === selectedID);

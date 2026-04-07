@@ -166,6 +166,86 @@ func TestMissingPerformerGalleriesUsesDirectPathWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestMissingPerformerGalleriesFallsBackToFolderPathWhenDirectPathIsUnsupported(t *testing.T) {
+	client := NewClient("http://stash.local", "secret-key", false)
+	requests := 0
+	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requests++
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var req gqlRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+
+		if requests == 1 {
+			if !strings.Contains(req.Query, "path folder { path }") {
+				t.Fatalf("expected direct path and folder query, got %q", req.Query)
+			}
+			return jsonResponse(`{"errors":[{"message":"Cannot query field \"path\" on type \"Gallery\"."}],"data":null}`), nil
+		}
+
+		if !strings.Contains(req.Query, "folder { path }") || strings.Contains(req.Query, "details path files") {
+			t.Fatalf("expected folder fallback query without direct path, got %q", req.Query)
+		}
+		return jsonResponse(`{"data":{"findGalleries":{"count":1,"galleries":[{"id":"g1","title":"Gallery","details":"","folder":{"path":"/media/gallery-folder"},"files":[],"performers":[],"tags":[],"studio":null}]}}}`), nil
+	})}
+
+	items, err := client.MissingPerformerGalleries(context.Background())
+	if err != nil {
+		t.Fatalf("MissingPerformerGalleries: %v", err)
+	}
+	if got, want := items[0].Path, "/media/gallery-folder"; got != want {
+		t.Fatalf("gallery path mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestAutoAssignGalleryPerformersFromScenePathsUsesFolderPathFallback(t *testing.T) {
+	client := NewClient("http://stash.local", "secret-key", false)
+	var mutations []string
+	galleryRequests := 0
+	client.http = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var req gqlRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+
+		switch {
+		case strings.Contains(req.Query, "findScenes"):
+			return jsonResponse(`{"data":{"findScenes":{"count":1,"scenes":[{"id":"s1","title":"Scene","details":"","files":[{"path":"/media/shared-folder"}],"performers":[{"id":"p1"}],"tags":[],"studio":null}]}}}`), nil
+		case strings.Contains(req.Query, "findGalleries"):
+			galleryRequests++
+			if galleryRequests == 1 {
+				return jsonResponse(`{"errors":[{"message":"Cannot query field \"path\" on type \"Gallery\"."}],"data":null}`), nil
+			}
+			return jsonResponse(`{"data":{"findGalleries":{"count":1,"galleries":[{"id":"g1","title":"Gallery","details":"","folder":{"path":"/media/shared-folder"},"files":[],"performers":[],"tags":[],"studio":null}]}}}`), nil
+		case strings.Contains(req.Query, "galleryUpdate"):
+			mutations = append(mutations, req.Query)
+			return jsonResponse(`{"data":{"galleryUpdate":{"id":"g1"}}}`), nil
+		default:
+			t.Fatalf("unexpected query %q", req.Query)
+			return nil, nil
+		}
+	})}
+
+	assigned, err := client.AutoAssignGalleryPerformersFromScenePaths(context.Background())
+	if err != nil {
+		t.Fatalf("AutoAssignGalleryPerformersFromScenePaths: %v", err)
+	}
+	if got, want := assigned, 1; got != want {
+		t.Fatalf("assigned count mismatch: got %d want %d", got, want)
+	}
+	if got, want := len(mutations), 1; got != want {
+		t.Fatalf("mutation count mismatch: got %d want %d", got, want)
+	}
+}
+
 func TestAutoAssignGalleryPerformersFromScenePathsAssignsExactMatch(t *testing.T) {
 	client := NewClient("http://stash.local", "secret-key", false)
 	var mutations []string

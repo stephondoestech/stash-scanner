@@ -13,6 +13,7 @@
     p { color:var(--muted); }
     button { border:0; border-radius:999px; background:var(--accent); color:#fff; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; }
     button[disabled] { opacity:.6; cursor:not-allowed; }
+    button.secondary { background:#efe5d8; color:var(--ink); }
     .hero, .status, .stats, .layout { display:grid; gap:16px; }
     .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .nav { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
@@ -33,6 +34,8 @@
     .list { display:grid; gap:12px; max-height:720px; overflow:auto; padding-right:6px; }
     .item { border:1px solid rgba(215,202,183,.85); border-radius:18px; padding:14px; background:#fff; cursor:pointer; }
     .item.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(140,59,43,.1); }
+    .item-head { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:start; }
+    .selector { width:18px; height:18px; margin-top:2px; accent-color:var(--accent); }
     .pill { display:inline-flex; padding:6px 10px; border-radius:999px; font-size:.78rem; font-weight:700; background:var(--accent-soft); color:var(--accent); }
     .pill.ok { background:var(--ok-soft); color:var(--ok); }
     .mono { font-family:"IBM Plex Mono","SFMono-Regular",monospace; font-size:.85rem; }
@@ -53,7 +56,6 @@
     .filters button { background:#efe5d8; color:var(--ink); }
     .filters button.active { background:var(--accent); color:#fff; }
     .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
-    .actions button.secondary { background:#efe5d8; color:var(--ink); }
     @media (max-width: 900px) {
       .hero, .layout { grid-template-columns:1fr; }
       .status { grid-template-columns:auto 1fr; }
@@ -89,6 +91,13 @@
     <section class="layout">
       <article class="panel">
         <div class="label">Queue</div>
+        <div class="toolbar">
+          <button id="select-visible" type="button" class="secondary">Select Visible</button>
+          <button id="clear-selection" type="button" class="secondary">Clear Selection</button>
+          <button id="bulk-skip" type="button" class="secondary">Skip Selected</button>
+          <button id="bulk-reopen" type="button" class="secondary">Reopen Selected</button>
+          <span id="selection-count" class="sub">0 selected</span>
+        </div>
         <div class="filters">
           <button id="filter-active" class="active" type="button">Active</button>
           <button id="filter-all" type="button">All</button>
