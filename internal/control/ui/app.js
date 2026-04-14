@@ -12,6 +12,7 @@ const els = {
   currentTrigger: document.getElementById("current-trigger"),
   currentStarted: document.getElementById("current-started"),
   currentUpdated: document.getElementById("current-updated"),
+  currentIdentifySources: document.getElementById("current-identify-sources"),
   stashTaskTitle: document.getElementById("stash-task-title"),
   stashTaskDetail: document.getElementById("stash-task-detail"),
   stashTaskID: document.getElementById("stash-task-id"),
@@ -89,6 +90,7 @@ function render(status) {
   els.currentTrigger.textContent = current.trigger || "-";
   els.currentStarted.textContent = fmt(current.started_at);
   els.currentUpdated.textContent = fmt(current.updated_at);
+  els.currentIdentifySources.textContent = (current.identify_sources || []).join(", ") || (last.identify_sources || []).join(", ") || "-";
   renderTask(task);
   renderPathList(els.pendingDebounce, debouncePaths, els.pendingDebounceEmpty);
   renderPathList(els.pendingRetry, retryPaths, els.pendingRetryEmpty);
@@ -141,6 +143,7 @@ function renderSummary(last) {
   if (typeof last.pending_after === "number") items.push(`Pending after run: ${last.pending_after}`);
   if (typeof last.retry_attempt === "number" && last.retry_attempt > 0) items.push(`Retry attempt: ${last.retry_attempt}`);
   if (Array.isArray(last.post_scan_tasks) && last.post_scan_tasks.length) items.push(`Post-scan: ${last.post_scan_tasks.join(", ")}`);
+  if (Array.isArray(last.identify_sources) && last.identify_sources.length) items.push(`Identify sources: ${last.identify_sources.join(", ")}`);
   if (last.last_error) items.push(`Error: ${last.last_error}`);
   renderSimpleList(els.lastSummary, items, els.lastSummaryEmpty);
 }

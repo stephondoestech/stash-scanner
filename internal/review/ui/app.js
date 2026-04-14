@@ -7,7 +7,14 @@ const els = {
   skippedCount: document.getElementById("skipped-count"),
   resolvedCount: document.getElementById("resolved-count"),
   reviewCount: document.getElementById("review-count"),
+  suppressedCount: document.getElementById("suppressed-count"),
   emptyCount: document.getElementById("empty-count"),
+  settingsMinScore: document.getElementById("settings-min-score"),
+  settingsMinLead: document.getElementById("settings-min-lead"),
+  settingsSave: document.getElementById("settings-save"),
+  settingsStatus: document.getElementById("settings-status"),
+  auditLog: document.getElementById("audit-log"),
+  auditEmpty: document.getElementById("audit-empty"),
   queue: document.getElementById("queue"),
   queueEmpty: document.getElementById("queue-empty"),
   selectVisible: document.getElementById("select-visible"),
@@ -113,11 +120,35 @@ function render(status) {
   els.skippedCount.textContent = String(status.skipped_count || 0);
   els.resolvedCount.textContent = String(status.resolved_count || 0);
   els.reviewCount.textContent = String(status.review_count || 0);
+  els.suppressedCount.textContent = String(status.suppressed_count || 0);
   els.emptyCount.textContent = String(status.empty_count || 0);
+  els.settingsMinScore.value = String(status.match_min_score || 0);
+  els.settingsMinLead.value = String(status.match_min_lead || 0);
+  els.settingsStatus.textContent = `Active thresholds: min score ${status.match_min_score || 0}, min lead ${status.match_min_lead || 0}`;
   updateFilterButtons();
   updateSelectionControls();
   renderQueue(filteredItems(status.items || []));
   renderDetail(selected);
+  renderAudit(status.audit_trail || []);
+}
+
+function renderAudit(entries) {
+  els.auditLog.innerHTML = "";
+  els.auditEmpty.style.display = entries.length ? "none" : "block";
+  for (const entry of entries.slice(0, 12)) {
+    const row = document.createElement("div");
+    row.className = "item";
+    const items = entry.item_ids?.length ? ` • items: ${entry.item_ids.join(", ")}` : "";
+    row.innerHTML = `
+      <div class="item-head">
+        <strong>${escapeHTML(entry.action || "event")}</strong>
+        <span class="pill">${escapeHTML(fmt(entry.at))}</span>
+      </div>
+      <div class="sub">${escapeHTML(entry.detail || "")}${escapeHTML(items)}</div>
+      <div class="sub">thresholds • min score ${escapeHTML(entry.match_min_score || 0)} • min lead ${escapeHTML(entry.match_min_lead || 0)}</div>
+    `;
+    els.auditLog.appendChild(row);
+  }
 }
 
 function renderQueue(items) {
@@ -237,6 +268,16 @@ async function refreshQueue() {
   }
 }
 
+async function updateSettings(minScore, minLead) {
+  const res = await fetch("api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ min_score: minScore, min_lead: minLead }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  render(await res.json());
+}
+
 async function updateItemState(itemID, reviewState) {
   const res = await fetch("api/items/state", {
     method: "POST",
@@ -299,6 +340,9 @@ function bindAssignButtons(root) {
     button.addEventListener("click", async () => {
       const itemIDs = selectedItemIDs();
       if (!itemIDs.length) return;
+      if (itemIDs.length > 1 && !window.confirm(`Assign this performer to ${itemIDs.length} selected items?`)) {
+        return;
+      }
       button.disabled = true;
       try {
         await assignCandidateBulk(itemIDs, button.dataset.performerId);
@@ -375,6 +419,23 @@ function escapeAttr(value) {
 els.refresh.addEventListener("click", async () => {
   await refreshQueue();
   schedule();
+});
+els.settingsSave.addEventListener("click", async () => {
+  const minScore = Number.parseInt(els.settingsMinScore.value, 10);
+  const minLead = Number.parseInt(els.settingsMinLead.value, 10);
+  if (!Number.isFinite(minScore) || !Number.isFinite(minLead)) {
+    els.settingsStatus.textContent = "Enter valid numeric threshold values.";
+    return;
+  }
+  els.settingsSave.disabled = true;
+  els.settingsStatus.textContent = "Applying reviewer thresholds...";
+  try {
+    await updateSettings(minScore, minLead);
+  } catch (err) {
+    els.settingsStatus.textContent = String(err);
+  } finally {
+    els.settingsSave.disabled = false;
+  }
 });
 
 els.filterActive.addEventListener("click", () => {

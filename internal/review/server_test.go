@@ -40,6 +40,9 @@ func TestStatusHandlerReturnsQueue(t *testing.T) {
 	if payload.ItemCount != 0 {
 		t.Fatalf("expected empty queue, got %d items", payload.ItemCount)
 	}
+	if payload.MatchMinScore == 0 || payload.MatchMinLead < 0 {
+		t.Fatalf("expected active match config in status, got %+v", payload)
+	}
 }
 
 func TestRefreshHandlerRunsRefresh(t *testing.T) {
@@ -271,5 +274,39 @@ func TestBulkAssignHandlerMarksMultipleItemsResolved(t *testing.T) {
 	}
 	if got, want := service.Status().ResolvedCount, 2; got != want {
 		t.Fatalf("resolved count mismatch: got %d want %d", got, want)
+	}
+}
+
+func TestSettingsHandlerUpdatesReviewerThresholds(t *testing.T) {
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		&fakeStashClient{
+			scenes:     []stash.MediaItem{{ID: "scene-1", Title: "Jane Doe scene", Path: "/media/jane.mp4"}},
+			performers: []stash.Performer{{ID: "perf-1", Name: "Jane Doe"}},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	server := NewServer("127.0.0.1:0", service, log.New(io.Discard, "", 0))
+	req := httptest.NewRequest(http.MethodPost, "/api/settings", strings.NewReader(`{"min_score":24,"min_lead":4}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+	status := service.Status()
+	if got, want := status.MatchMinScore, 24; got != want {
+		t.Fatalf("min score mismatch: got %d want %d", got, want)
+	}
+	if got, want := status.MatchMinLead, 4; got != want {
+		t.Fatalf("min lead mismatch: got %d want %d", got, want)
 	}
 }

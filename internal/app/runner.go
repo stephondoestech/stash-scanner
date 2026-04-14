@@ -40,6 +40,7 @@ type Runner struct {
 type scanClient interface {
 	TriggerScan(context.Context, []string) (string, error)
 	TriggerPostScanTask(context.Context, stash.PostScanTask, []string, config.PostScan) (string, error)
+	DescribeIdentifySources(context.Context, config.PostScan) ([]string, error)
 	LibraryRoots(context.Context) ([]string, error)
 	FindJob(context.Context, string) (stash.Job, error)
 	StopJob(context.Context, string) error
@@ -300,6 +301,7 @@ func (r *Runner) runCycleWithLock(ctx context.Context, trigger string) error {
 		summary.ScanSucceeded = true
 		postScanTasks, postScanTask, postScanErr := r.runPostScanTasks(ctx, scanTargets)
 		summary.PostScanTasks = postScanTasks
+		summary.IdentifySources = r.currentRun.IdentifySources
 		if postScanTask.ID != "" || postScanTask.Status != "" {
 			summary.StashTask = postScanTask
 		}
@@ -439,6 +441,7 @@ func (r *Runner) runPendingOnlyWithLock(ctx context.Context, trigger string) err
 	summary.ScanSucceeded = true
 	postScanTasks, postScanTask, postScanErr := r.runPostScanTasks(ctx, scanTargets)
 	summary.PostScanTasks = postScanTasks
+	summary.IdentifySources = r.currentRun.IdentifySources
 	if postScanTask.ID != "" || postScanTask.Status != "" {
 		summary.StashTask = postScanTask
 	}

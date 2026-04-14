@@ -55,6 +55,8 @@ STASH_SCANNER_WATCH_ROOTS_FROM_STASH=true
 STASH_SCANNER_DRY_RUN=false
 ```
 
+If you enable `identify` later, keep it opt-in. You only need `STASH_SCANNER_IDENTIFY_*` variables when Stash does not already have default identify sources configured.
+
 3. Start the app:
 
 ```sh
@@ -130,6 +132,13 @@ Optional:
 - `STASH_SCANNER_RETRY_INITIAL_BACKOFF` - how long to wait before the first retry
 - `STASH_SCANNER_RETRY_MAX_BACKOFF` - the longest retry delay the scanner will use
 
+Docker and `.env` guidance:
+
+- `STASH_SCANNER_STASH_URL` and `STASH_SCANNER_API_KEY` are required for normal scanner and reviewer operation
+- `STASH_REVIEWER_MIN_SCORE` and `STASH_REVIEWER_MIN_LEAD` are optional; defaults are used when unset
+- `STASH_SCANNER_IDENTIFY_*` values are optional unless `identify` is enabled and Stash has no default identify sources configured
+- reviewer-specific `STASH_REVIEWER_STASH_URL` and `STASH_REVIEWER_API_KEY` are optional overrides; they fall back to the scanner values
+
 Reviewer runtime:
 
 - `STASH_REVIEWER_STASH_URL` - optional override for the reviewer Stash URL; falls back to `STASH_SCANNER_STASH_URL`
@@ -139,6 +148,7 @@ Reviewer runtime:
 - `STASH_REVIEWER_REFRESH_INTERVAL` - optional background refresh interval; by default the reviewer refreshes once at startup and on manual request only
 - `STASH_REVIEWER_MIN_SCORE` - minimum reviewer candidate score required before a suggestion is shown
 - `STASH_REVIEWER_MIN_LEAD` - minimum score lead the top candidate must have over the runner-up to avoid suppression as ambiguous
+- the reviewer UI can also adjust the active thresholds at runtime; the change applies immediately by refreshing the queue with the new settings
 
 ## Commands
 
@@ -174,6 +184,7 @@ API:
 - a successful debounce target run always performs the selective `metadataScan` first; post-scan tasks then run in this order: `identify`, `auto_tag`, `clean`
 - `identify` now auto-discovers only Stash's configured default identify sources when local `STASH_SCANNER_IDENTIFY_*` overrides are not set.
 - if Stash has no default identify sources configured, `identify` now fails fast and requires explicit `STASH_SCANNER_IDENTIFY_*` settings instead of widening to every discovered stash box or scraper.
+- keep `identify` opt-in in deployment configs unless you have reviewed the active default sources or set explicit `STASH_SCANNER_IDENTIFY_*` values.
 - `post_scan_tasks=auto_tag,identify` still works, but task execution is normalized to `identify` before `auto_tag`
 - if the control port cannot bind, the app either uses `control.fallback_bind` or exits with a clear error.
 - the Docker image defaults `STASH_SCANNER_STATE_PATH` to `/config/state.json`, so mount a writable host path to `/config` for persistence.

@@ -36,6 +36,8 @@ type Service struct {
 	snapshot   Snapshot
 }
 
+const maxAuditEntries = 50
+
 func NewService(store *Store, client stashClient, logger *log.Logger) (*Service, error) {
 	if store == nil {
 		return nil, fmt.Errorf("store is required")
@@ -57,7 +59,7 @@ func NewService(store *Store, client stashClient, logger *log.Logger) (*Service,
 		store:    store,
 		client:   client,
 		now:      func() time.Time { return time.Now().UTC() },
-		match:    defaultMatchConfig(),
+		match:    matchConfigFromSettings(snapshot.Settings),
 		snapshot: snapshot,
 	}, nil
 }
@@ -71,7 +73,14 @@ func (s *Service) SetMatchConfig(cfg matchConfig) {
 	}
 	s.mu.Lock()
 	s.match = cfg
+	s.snapshot.Settings = cfg.settings()
 	s.mu.Unlock()
+}
+
+func (s *Service) MatchConfig() matchConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.match
 }
 
 func (s *Service) Status() Status {
@@ -79,17 +88,21 @@ func (s *Service) Status() Status {
 	defer s.mu.RUnlock()
 
 	return Status{
-		Now:           s.now(),
-		Running:       s.running,
-		RefreshedAt:   s.snapshot.RefreshedAt,
-		ItemCount:     s.snapshot.ItemCount,
-		ActiveCount:   s.snapshot.ActiveCount,
-		SkippedCount:  s.snapshot.SkippedCount,
-		ResolvedCount: s.snapshot.ResolvedCount,
-		ReviewCount:   s.snapshot.ReviewCount,
-		EmptyCount:    s.snapshot.EmptyCount,
-		LastError:     s.snapshot.LastError,
-		Items:         append([]QueueItem{}, s.snapshot.Items...),
+		Now:             s.now(),
+		Running:         s.running,
+		RefreshedAt:     s.snapshot.RefreshedAt,
+		ItemCount:       s.snapshot.ItemCount,
+		ActiveCount:     s.snapshot.ActiveCount,
+		SkippedCount:    s.snapshot.SkippedCount,
+		ResolvedCount:   s.snapshot.ResolvedCount,
+		ReviewCount:     s.snapshot.ReviewCount,
+		SuppressedCount: s.snapshot.SuppressedCount,
+		EmptyCount:      s.snapshot.EmptyCount,
+		MatchMinScore:   s.match.MinCandidateScore,
+		MatchMinLead:    s.match.MinCandidateLead,
+		AuditTrail:      append([]AuditEntry{}, s.snapshot.AuditTrail...),
+		LastError:       s.snapshot.LastError,
+		Items:           append([]QueueItem{}, s.snapshot.Items...),
 	}
 }
 
@@ -150,6 +163,8 @@ func (s *Service) Refresh(ctx context.Context) error {
 	snapshot := Snapshot{
 		RefreshedAt: s.now(),
 		ItemCount:   len(items),
+		Settings:    matchCfg.settings(),
+		AuditTrail:  append([]AuditEntry{}, s.snapshot.AuditTrail...),
 		Items:       items,
 	}
 	for _, item := range items {
@@ -164,8 +179,19 @@ func (s *Service) Refresh(ctx context.Context) error {
 			snapshot.ReviewCount++
 			continue
 		}
+		if item.Status == "suppressed" {
+			snapshot.SuppressedCount++
+			continue
+		}
 		snapshot.EmptyCount++
 	}
+	appendAuditEntry(&snapshot, AuditEntry{
+		At:            s.now(),
+		Action:        "refresh",
+		Detail:        fmt.Sprintf("review queue refreshed with %d items", snapshot.ItemCount),
+		MatchMinScore: matchCfg.MinCandidateScore,
+		MatchMinLead:  matchCfg.MinCandidateLead,
+	})
 
 	if err := s.store.Save(snapshot); err != nil {
 		return s.fail(err)
@@ -176,8 +202,20 @@ func (s *Service) Refresh(ctx context.Context) error {
 	s.snapshot = snapshot
 	s.mu.Unlock()
 
-	logging.Event(s.logger, "review_refresh_finished", "items", snapshot.ItemCount, "needs_review", snapshot.ReviewCount, "no_candidate", snapshot.EmptyCount, "auto_assigned_galleries", autoAssigned)
+	logging.Event(s.logger, "review_refresh_finished", "items", snapshot.ItemCount, "needs_review", snapshot.ReviewCount, "suppressed", snapshot.SuppressedCount, "no_candidate", snapshot.EmptyCount, "auto_assigned_galleries", autoAssigned)
 	return nil
+}
+
+func (s *Service) UpdateMatchConfig(ctx context.Context, cfg matchConfig) error {
+	s.SetMatchConfig(cfg)
+	s.mu.Lock()
+	s.appendAuditLocked("settings_updated", fmt.Sprintf("reviewer thresholds set to min score %d and min lead %d", cfg.MinCandidateScore, cfg.MinCandidateLead), nil)
+	if err := s.store.Save(s.snapshot); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+	return s.Refresh(ctx)
 }
 
 func (s *Service) Run(ctx context.Context, interval time.Duration) error {
@@ -280,6 +318,7 @@ func (s *Service) SetReviewStateBulk(itemIDs []string, state ReviewState) error 
 		return fmt.Errorf("no matching items found")
 	}
 	recountSnapshot(&s.snapshot)
+	s.appendAuditLocked("review_state_updated", fmt.Sprintf("set review state to %s", state), itemIDs)
 	if err := s.store.Save(s.snapshot); err != nil {
 		return err
 	}
@@ -347,6 +386,7 @@ func (s *Service) AssignCandidateBulk(ctx context.Context, itemIDs []string, per
 		return fmt.Errorf("no matching items found")
 	}
 	recountSnapshot(&s.snapshot)
+	s.appendAuditLocked("assigned", fmt.Sprintf("assigned performer %s", performerID), itemIDs)
 	if err := s.store.Save(s.snapshot); err != nil {
 		return err
 	}
@@ -381,6 +421,7 @@ func recountSnapshot(snapshot *Snapshot) {
 	snapshot.SkippedCount = 0
 	snapshot.ResolvedCount = 0
 	snapshot.ReviewCount = 0
+	snapshot.SuppressedCount = 0
 	snapshot.EmptyCount = 0
 	for _, item := range snapshot.Items {
 		if item.ReviewState == ReviewSkipped {
@@ -392,9 +433,31 @@ func recountSnapshot(snapshot *Snapshot) {
 		}
 		if item.Status == "needs_review" {
 			snapshot.ReviewCount++
+		} else if item.Status == "suppressed" {
+			snapshot.SuppressedCount++
 		} else {
 			snapshot.EmptyCount++
 		}
+	}
+}
+
+func (s *Service) appendAuditLocked(action, detail string, itemIDs []string) {
+	entry := AuditEntry{
+		At:            s.now(),
+		Action:        action,
+		Detail:        detail,
+		ItemIDs:       append([]string{}, itemIDs...),
+		MatchMinScore: s.match.MinCandidateScore,
+		MatchMinLead:  s.match.MinCandidateLead,
+	}
+	appendAuditEntry(&s.snapshot, entry)
+	s.snapshot.Settings = s.match.settings()
+}
+
+func appendAuditEntry(snapshot *Snapshot, entry AuditEntry) {
+	snapshot.AuditTrail = append([]AuditEntry{entry}, snapshot.AuditTrail...)
+	if len(snapshot.AuditTrail) > maxAuditEntries {
+		snapshot.AuditTrail = snapshot.AuditTrail[:maxAuditEntries]
 	}
 }
 

@@ -13,6 +13,13 @@ type matchConfig struct {
 	MinCandidateLead  int
 }
 
+func (c matchConfig) settings() MatchSettings {
+	return MatchSettings{
+		MinScore: c.MinCandidateScore,
+		MinLead:  c.MinCandidateLead,
+	}
+}
+
 type scoreInput struct {
 	title       string
 	path        string
@@ -33,9 +40,13 @@ func defaultMatchConfig() matchConfig {
 func scoreItem(item stash.MediaItem, itemType ItemType, performers []stash.Performer, cfg matchConfig) QueueItem {
 	input := buildScoreInput(item)
 	candidates := make([]Candidate, 0, 5)
+	lowSignal := false
 
 	for _, performer := range performers {
 		score, reasons := scorePerformer(input, performer)
+		if score > 0 && score < cfg.MinCandidateScore {
+			lowSignal = true
+		}
 		if score < cfg.MinCandidateScore {
 			continue
 		}
@@ -67,9 +78,13 @@ func scoreItem(item stash.MediaItem, itemType ItemType, performers []stash.Perfo
 		bestScore = candidates[0].Score
 	} else {
 		if len(candidates) > 0 {
+			status = "suppressed"
 			suppressionReason = "ambiguous_match"
-		} else {
+		} else if lowSignal {
+			status = "suppressed"
 			suppressionReason = "weak_signal"
+		} else {
+			suppressionReason = ""
 		}
 		candidates = nil
 	}

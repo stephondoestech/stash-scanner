@@ -19,6 +19,15 @@ func (r *Runner) runPostScanTasks(ctx context.Context, paths []string) ([]string
 		task := stash.PostScanTask(taskName)
 		r.updateRunProgress("post_scan_task", fmt.Sprintf("Running post-scan task %s", taskName))
 		logging.Event(r.logger, "post_scan_task_started", "task", taskName, "targets", len(paths))
+		if task == stash.PostScanIdentify {
+			identifySources, describeErr := r.client.DescribeIdentifySources(ctx, r.cfg.PostScan)
+			if describeErr != nil {
+				return completed, lastTask, fmt.Errorf("identify sources: %w", describeErr)
+			}
+			r.updateIdentifySources(identifySources)
+			lastTask.Description = "Post-scan task: identify"
+			logging.Event(r.logger, "post_scan_identify_sources", "sources", identifySources)
+		}
 
 		jobID, err := r.client.TriggerPostScanTask(ctx, task, paths, r.cfg.PostScan)
 		if err != nil {
@@ -36,6 +45,9 @@ func (r *Runner) runPostScanTasks(ctx context.Context, paths []string) ([]string
 		}
 
 		completed = append(completed, taskName)
+		if task == stash.PostScanIdentify {
+			lastTask.Description = "Post-scan task: identify"
+		}
 		logging.Event(r.logger, "post_scan_task_finished", "task", taskName, "job_id", jobID)
 	}
 

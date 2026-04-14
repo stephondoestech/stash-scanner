@@ -76,6 +76,15 @@
       <div class="toolbar"><button id="refresh">Refresh Queue</button></div>
     </section>
     <section class="status">
+      <strong>Matcher Settings</strong>
+      <div class="toolbar">
+        <label class="sub">Min Score <input id="settings-min-score" type="number" min="1" step="1" style="margin-left:8px; width:88px;"></label>
+        <label class="sub">Min Lead <input id="settings-min-lead" type="number" min="0" step="1" style="margin-left:8px; width:88px;"></label>
+        <button id="settings-save" type="button" class="secondary">Apply</button>
+      </div>
+      <span id="settings-status" class="sub">Using current reviewer thresholds.</span>
+    </section>
+    <section class="status">
       <span id="dot" class="dot"></span>
       <strong id="status-text">Loading</strong>
       <span id="refreshed" class="sub">Waiting for first refresh</span>
@@ -86,7 +95,8 @@
       <article class="card"><div class="label">Skipped</div><div id="skipped-count" class="value">-</div><div class="sub">Hidden from active work</div></article>
       <article class="card"><div class="label">Resolved</div><div id="resolved-count" class="value">-</div><div class="sub">Assigned by automation or review</div></article>
       <article class="card"><div class="label">Needs Review</div><div id="review-count" class="value">-</div><div class="sub">Has candidate performers</div></article>
-      <article class="card"><div class="label">No Candidate</div><div id="empty-count" class="value">-</div><div class="sub">No likely performer yet</div></article>
+      <article class="card"><div class="label">Suppressed</div><div id="suppressed-count" class="value">-</div><div class="sub">Filtered by weak or ambiguous matching</div></article>
+      <article class="card"><div class="label">No Candidate</div><div id="empty-count" class="value">-</div><div class="sub">No detectable performer signal yet</div></article>
     </section>
     <section class="layout">
       <article class="panel">
@@ -137,6 +147,11 @@
           <div id="candidates" class="candidates"></div>
         </div>
       </article>
+    </section>
+    <section class="panel">
+      <div class="label">Recent Audit</div>
+      <div id="audit-empty" class="empty">No review audit events yet.</div>
+      <div id="audit-log" class="list"></div>
     </section>
   </main>
   <script src="ui/app.js"></script>

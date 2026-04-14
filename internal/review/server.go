@@ -67,6 +67,28 @@ func RegisterRoutes(mux *http.ServeMux, prefix string, service *Service) {
 		}
 		writeJSON(w, http.StatusOK, service.Status())
 	})
+	mux.HandleFunc(base+"api/settings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			MinScore int `json:"min_score"`
+			MinLead  int `json:"min_lead"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		if err := service.UpdateMatchConfig(r.Context(), matchConfig{
+			MinCandidateScore: payload.MinScore,
+			MinCandidateLead:  payload.MinLead,
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, service.Status())
+	})
 	mux.HandleFunc(base+"api/refresh", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

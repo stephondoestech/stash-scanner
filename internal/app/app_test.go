@@ -366,7 +366,8 @@ func TestRunOnceRunsConfiguredPostScanTasks(t *testing.T) {
 
 	store := state.NewStore(cfg.StatePath)
 	client := &fakeClient{
-		jobID: "scan-job",
+		jobID:           "scan-job",
+		identifySources: []string{"stash_box_endpoint:https://fansdb.cc/graphql"},
 		jobs: []stash.Job{
 			{ID: "scan-job", Status: "FINISHED", Description: "Scan", Progress: 1},
 			{ID: "task-1", Status: "FINISHED", Description: "Auto Tag", Progress: 1},
@@ -400,6 +401,70 @@ func TestRunOnceRunsConfiguredPostScanTasks(t *testing.T) {
 
 	if got, want := len(status.LastRun.PostScanTasks), 2; got != want {
 		t.Fatalf("completed post scan task count mismatch: got %d want %d", got, want)
+	}
+	if got, want := len(status.LastRun.IdentifySources), 0; got != want {
+		t.Fatalf("identify source count mismatch for non-identify tasks: got %d want %d", got, want)
+	}
+}
+
+func TestRunOnceExposesIdentifySourcesForIdentifyTask(t *testing.T) {
+	root := t.TempDir()
+	filePath := filepath.Join(root, "scene.mp4")
+	if err := os.WriteFile(filePath, []byte("media"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	cfg := config.Config{
+		WatchRoots:     []string{root},
+		StatePath:      filepath.Join(t.TempDir(), "state.json"),
+		DebounceWindow: config.Duration{Duration: 0},
+		PostScan: config.PostScan{
+			Tasks: []string{"identify"},
+		},
+		Retry: config.Retry{
+			MaxAttempts:    5,
+			InitialBackoff: config.Duration{Duration: 10 * time.Second},
+			MaxBackoff:     config.Duration{Duration: time.Minute},
+		},
+		Schedule: config.Schedule{
+			Interval: config.Duration{Duration: time.Minute},
+		},
+	}
+
+	store := state.NewStore(cfg.StatePath)
+	client := &fakeClient{
+		jobID:           "scan-job",
+		identifySources: []string{"stash_box_endpoint:https://fansdb.cc/graphql", "scraper_id:builtin-json"},
+		jobs: []stash.Job{
+			{ID: "scan-job", Status: "FINISHED", Description: "Scan", Progress: 1},
+			{ID: "task-1", Status: "FINISHED", Description: "Identify", Progress: 1},
+		},
+		postScanJobIDs: []string{"task-1"},
+	}
+	runner := &Runner{
+		cfg:       cfg,
+		logger:    log.New(io.Discard, "", 0),
+		detector:  detect.New([]string{"*.mp4"}, nil),
+		store:     store,
+		client:    client,
+		scheduler: scheduler.New(time.Minute, ""),
+		now:       func() time.Time { return time.Date(2026, time.March, 27, 2, 0, 0, 0, time.UTC) },
+		pollEvery: time.Millisecond,
+	}
+
+	if err := runner.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	status, err := runner.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if got, want := len(status.LastRun.IdentifySources), 2; got != want {
+		t.Fatalf("identify source count mismatch: got %d want %d", got, want)
+	}
+	if got, want := status.LastRun.IdentifySources[0], "stash_box_endpoint:https://fansdb.cc/graphql"; got != want {
+		t.Fatalf("identify source mismatch: got %q want %q", got, want)
 	}
 }
 
@@ -498,17 +563,18 @@ func TestFlushPendingDebounceStartsPendingOnlyScanWithoutFilesystemWalk(t *testi
 }
 
 type fakeClient struct {
-	roots          []string
-	calls          int
-	err            error
-	jobID          string
-	jobs           []stash.Job
-	postScanTasks  []string
-	postScanJobIDs []string
-	findCalls      int
-	stopErr        error
-	stoppedJobID   string
-	cancelled      bool
+	roots           []string
+	calls           int
+	err             error
+	jobID           string
+	jobs            []stash.Job
+	postScanTasks   []string
+	postScanJobIDs  []string
+	findCalls       int
+	stopErr         error
+	stoppedJobID    string
+	cancelled       bool
+	identifySources []string
 }
 
 func (f *fakeClient) TriggerScan(_ context.Context, _ []string) (string, error) {
@@ -531,6 +597,10 @@ func (f *fakeClient) TriggerPostScanTask(_ context.Context, task stash.PostScanT
 	jobID := f.postScanJobIDs[0]
 	f.postScanJobIDs = f.postScanJobIDs[1:]
 	return jobID, nil
+}
+
+func (f *fakeClient) DescribeIdentifySources(_ context.Context, _ config.PostScan) ([]string, error) {
+	return append([]string{}, f.identifySources...), nil
 }
 
 func (f *fakeClient) FindJob(_ context.Context, _ string) (stash.Job, error) {

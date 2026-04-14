@@ -44,7 +44,7 @@ func TestScoreItemRejectsStudioAndTagOnlySignal(t *testing.T) {
 	}
 
 	scored := scoreItem(item, SceneItem, performers, defaultMatchConfig())
-	if got, want := scored.Status, "no_candidate"; got != want {
+	if got, want := scored.Status, "suppressed"; got != want {
 		t.Fatalf("status mismatch: got %q want %q", got, want)
 	}
 	if got, want := scored.SuppressionReason, "weak_signal"; got != want {
@@ -69,8 +69,8 @@ func TestScoreItemRejectsRawSubstringFragments(t *testing.T) {
 	if got, want := scored.Status, "no_candidate"; got != want {
 		t.Fatalf("status mismatch: got %q want %q", got, want)
 	}
-	if got, want := scored.SuppressionReason, "weak_signal"; got != want {
-		t.Fatalf("suppression reason mismatch: got %q want %q", got, want)
+	if got := scored.SuppressionReason; got != "" {
+		t.Fatalf("suppression reason mismatch: got %q want empty", got)
 	}
 }
 
@@ -86,7 +86,7 @@ func TestScoreItemSuppressesAmbiguousTopMatches(t *testing.T) {
 	}
 
 	scored := scoreItem(item, SceneItem, performers, defaultMatchConfig())
-	if got, want := scored.Status, "no_candidate"; got != want {
+	if got, want := scored.Status, "suppressed"; got != want {
 		t.Fatalf("status mismatch: got %q want %q", got, want)
 	}
 	if got, want := scored.SuppressionReason, "ambiguous_match"; got != want {
@@ -106,7 +106,7 @@ func TestScoreItemAllowsTighterConfiguredThresholds(t *testing.T) {
 	performers := []stash.Performer{{ID: "perf-1", Name: "Jane Doe"}}
 
 	scored := scoreItem(item, SceneItem, performers, matchConfig{MinCandidateScore: 24, MinCandidateLead: 3})
-	if got, want := scored.Status, "no_candidate"; got != want {
+	if got, want := scored.Status, "suppressed"; got != want {
 		t.Fatalf("status mismatch: got %q want %q", got, want)
 	}
 	if got, want := scored.SuppressionReason, "weak_signal"; got != want {
@@ -122,7 +122,7 @@ func TestScoreItemRejectsSingleTokenAliasFragmentsInTags(t *testing.T) {
 	performers := []stash.Performer{{ID: "perf-1", Name: "Jane Doe", Aliases: []string{"JD"}}}
 
 	scored := scoreItem(item, SceneItem, performers, defaultMatchConfig())
-	if got, want := scored.Status, "no_candidate"; got != want {
+	if got, want := scored.Status, "suppressed"; got != want {
 		t.Fatalf("status mismatch: got %q want %q", got, want)
 	}
 	if got, want := scored.SuppressionReason, "weak_signal"; got != want {

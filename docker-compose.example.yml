@@ -9,6 +9,9 @@ services:
     environment:
       STASH_SCANNER_CONTROL_BIND: 0.0.0.0:8088
       STASH_SCANNER_STATE_PATH: /config/state.json
+      # Required in .env: STASH_SCANNER_STASH_URL and STASH_SCANNER_API_KEY
+      # Optional reviewer thresholds: STASH_REVIEWER_MIN_SCORE and STASH_REVIEWER_MIN_LEAD
+      # Identify source vars are only needed if identify is enabled and Stash has no default identify sources.
     ports:
       - "8088:8088"
     volumes:

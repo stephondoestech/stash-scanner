@@ -98,8 +98,47 @@ func TestRefreshBuildsReviewQueue(t *testing.T) {
 	if got, want := status.EmptyCount, 1; got != want {
 		t.Fatalf("empty count mismatch: got %d want %d", got, want)
 	}
+	if got, want := status.SuppressedCount, 0; got != want {
+		t.Fatalf("suppressed count mismatch: got %d want %d", got, want)
+	}
 	if got := status.Items[0].Candidates[0].Name; got != "Jane Doe" {
 		t.Fatalf("unexpected top candidate: %q", got)
+	}
+}
+
+func TestRefreshTracksSuppressedItemsSeparately(t *testing.T) {
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		&fakeStashClient{
+			scenes: []stash.MediaItem{{
+				ID:     "scene-1",
+				Title:  "Behind the scenes",
+				Studio: "Jane Doe Productions",
+				Tags:   []string{"Jane Doe"},
+			}},
+			performers: []stash.Performer{
+				{ID: "perf-1", Name: "Jane Doe"},
+			},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	status := service.Status()
+	if got, want := status.SuppressedCount, 1; got != want {
+		t.Fatalf("suppressed count mismatch: got %d want %d", got, want)
+	}
+	if got, want := status.EmptyCount, 0; got != want {
+		t.Fatalf("empty count mismatch: got %d want %d", got, want)
+	}
+	if got, want := status.Items[0].Status, "suppressed"; got != want {
+		t.Fatalf("item status mismatch: got %q want %q", got, want)
 	}
 }
 
@@ -200,6 +239,9 @@ func TestSetReviewStatePersistsChange(t *testing.T) {
 	status := service.Status()
 	if got, want := status.Items[0].ReviewState, ReviewSkipped; got != want {
 		t.Fatalf("review state mismatch: got %q want %q", got, want)
+	}
+	if len(status.AuditTrail) == 0 {
+		t.Fatal("expected audit entry after review state change")
 	}
 }
 
@@ -327,6 +369,47 @@ func TestSearchPerformersReturnsManualMatches(t *testing.T) {
 	}
 	if got, want := results[0].PerformerID, "perf-1"; got != want {
 		t.Fatalf("performer id mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestUpdateMatchConfigPersistsAcrossRestart(t *testing.T) {
+	queuePath := filepath.Join(t.TempDir(), "queue.json")
+	service, err := NewService(
+		NewStore(queuePath),
+		&fakeStashClient{
+			scenes:     []stash.MediaItem{{ID: "scene-1", Title: "Jane Doe backstage", Path: "/media/jane.mp4"}},
+			performers: []stash.Performer{{ID: "perf-1", Name: "Jane Doe"}},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.UpdateMatchConfig(context.Background(), matchConfig{MinCandidateScore: 12, MinCandidateLead: 5}); err != nil {
+		t.Fatalf("UpdateMatchConfig: %v", err)
+	}
+
+	reloaded, err := NewService(
+		NewStore(queuePath),
+		&fakeStashClient{
+			scenes:     []stash.MediaItem{{ID: "scene-1", Title: "Jane Doe backstage", Path: "/media/jane.mp4"}},
+			performers: []stash.Performer{{ID: "perf-1", Name: "Jane Doe"}},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService reload: %v", err)
+	}
+
+	status := reloaded.Status()
+	if got, want := status.MatchMinScore, 12; got != want {
+		t.Fatalf("min score mismatch: got %d want %d", got, want)
+	}
+	if got, want := status.MatchMinLead, 5; got != want {
+		t.Fatalf("min lead mismatch: got %d want %d", got, want)
+	}
+	if len(status.AuditTrail) == 0 {
+		t.Fatal("expected audit trail to persist")
 	}
 }
 

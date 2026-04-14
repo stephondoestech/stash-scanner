@@ -24,6 +24,14 @@ func (c *Client) resolveIdentifyConfig(ctx context.Context, cfg config.PostScan)
 	return cfg, nil
 }
 
+func (c *Client) DescribeIdentifySources(ctx context.Context, cfg config.PostScan) ([]string, error) {
+	resolved, err := c.resolveIdentifyConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return describeIdentifySources(resolved), nil
+}
+
 type identifySources struct {
 	stashBoxEndpoints []string
 	scraperIDs        []string
@@ -68,6 +76,26 @@ func identifySourcesFromDefaults(response gqlResponse) identifySources {
 	sources.stashBoxEndpoints = uniqueNonEmpty(sources.stashBoxEndpoints)
 	sources.scraperIDs = uniqueNonEmpty(sources.scraperIDs)
 	return sources
+}
+
+func describeIdentifySources(cfg config.PostScan) []string {
+	items := make([]string, 0, len(cfg.IdentifyStashBoxIndexes)+len(cfg.IdentifyStashBoxEndpoints)+len(cfg.IdentifyScraperIDs))
+	for _, index := range cfg.IdentifyStashBoxIndexes {
+		items = append(items, fmt.Sprintf("stash_box_index:%d", index))
+	}
+	for _, endpoint := range cfg.IdentifyStashBoxEndpoints {
+		trimmed := strings.TrimSpace(endpoint)
+		if trimmed != "" {
+			items = append(items, "stash_box_endpoint:"+trimmed)
+		}
+	}
+	for _, scraperID := range cfg.IdentifyScraperIDs {
+		trimmed := strings.TrimSpace(scraperID)
+		if trimmed != "" {
+			items = append(items, "scraper_id:"+trimmed)
+		}
+	}
+	return uniqueNonEmpty(items)
 }
 
 func mapStashBoxEndpoints(stashBoxes []struct {

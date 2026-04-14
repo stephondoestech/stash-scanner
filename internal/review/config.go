@@ -16,6 +16,8 @@ type Config struct {
 	RefreshInterval time.Duration
 	MinScore        int
 	MinLead         int
+	MinScoreSet     bool
+	MinLeadSet      bool
 }
 
 func LoadConfig() (Config, error) {
@@ -47,6 +49,7 @@ func LoadConfig() (Config, error) {
 			return Config{}, fmt.Errorf("parse STASH_REVIEWER_MIN_SCORE: %w", err)
 		}
 		cfg.MinScore = minScore
+		cfg.MinScoreSet = true
 	}
 	if value := strings.TrimSpace(os.Getenv("STASH_REVIEWER_MIN_LEAD")); value != "" {
 		minLead, err := strconv.Atoi(value)
@@ -54,6 +57,7 @@ func LoadConfig() (Config, error) {
 			return Config{}, fmt.Errorf("parse STASH_REVIEWER_MIN_LEAD: %w", err)
 		}
 		cfg.MinLead = minLead
+		cfg.MinLeadSet = true
 	}
 
 	if cfg.StashURL == "" {
