@@ -79,6 +79,13 @@ make run-reviewer
 http://127.0.0.1:8090/
 ```
 
+The reviewer can now handle two manual workflows:
+
+- assign performers to scenes or galleries that are missing them
+- repair linked performers that already exist in Stash but are incomplete
+
+Incomplete performers are currently defined as performers missing `name`, `gender`, and `image`.
+
 ## First Run Warning
 
 Before the first real scanner run, make sure your Stash instance has recently scanned the same library paths and already knows about the files on disk.
@@ -149,6 +156,7 @@ Reviewer runtime:
 - `STASH_REVIEWER_MIN_SCORE` - minimum reviewer candidate score required before a suggestion is shown
 - `STASH_REVIEWER_MIN_LEAD` - minimum score lead the top candidate must have over the runner-up to avoid suppression as ambiguous
 - the reviewer UI can also adjust the active thresholds at runtime; the change applies immediately by refreshing the queue with the new settings
+- reviewer repair attempts are manual only; the UI exposes a repair button for incomplete linked performers or incomplete manual-search results when a stash-id-backed repair is possible
 
 ## Commands
 
@@ -190,6 +198,7 @@ API:
 - the Docker image defaults `STASH_SCANNER_STATE_PATH` to `/config/state.json`, so mount a writable host path to `/config` for persistence.
 - scheduled mode waits for the first configured interval or daily time; it does not auto-run a scan immediately on service startup
 - the control UI can promote pending debounce paths for immediate processing with `Scan Pending Now`
+- the scanner control UI now shows the resolved identify sources used for `identify` post-scan tasks
 
 ## Project Notes
 
@@ -200,4 +209,4 @@ API:
 
 - Current state file grows with the size of the Stash instance so it can easily exceed 1 GB or more. Will work on solving this in a future release. 
 - If the first run happened before Stash was fully up to date, files may exist in the scanner state but still be missing from Stash. To recover, delete the relevant entries from the state file so the scanner can rediscover them, or run a Stash scan that covers those paths directly.
-- The reviewer candidate engine is intentionally heuristic and read-only in this phase. It suggests likely performers using title, path, and alias overlap, but it does not write changes back to Stash yet.
+- The reviewer candidate engine remains heuristic for matching, but reviewer actions can now write back to Stash for manual assignments and manual performer repair attempts.

@@ -14,13 +14,14 @@ import (
 )
 
 type stashClient interface {
-	MissingPerformerScenes(context.Context) ([]stash.MediaItem, error)
-	MissingPerformerGalleries(context.Context) ([]stash.MediaItem, error)
+	SceneItems(context.Context) ([]stash.MediaItem, error)
+	GalleryItems(context.Context) ([]stash.MediaItem, error)
 	Performers(context.Context) ([]stash.Performer, error)
 	FetchImage(context.Context, string) (stash.ImageResult, error)
 	AutoAssignGalleryPerformersFromScenePaths(context.Context) (int, error)
 	AssignScenePerformers(context.Context, string, []string) error
 	AssignGalleryPerformers(context.Context, string, []string) error
+	RepairPerformer(context.Context, string) error
 }
 
 type Service struct {
@@ -96,6 +97,7 @@ func (s *Service) Status() Status {
 		SkippedCount:    s.snapshot.SkippedCount,
 		ResolvedCount:   s.snapshot.ResolvedCount,
 		ReviewCount:     s.snapshot.ReviewCount,
+		RepairCount:     s.snapshot.RepairCount,
 		SuppressedCount: s.snapshot.SuppressedCount,
 		EmptyCount:      s.snapshot.EmptyCount,
 		MatchMinScore:   s.match.MinCandidateScore,
@@ -118,7 +120,19 @@ func (s *Service) Refresh(ctx context.Context) error {
 	previousItems := append([]QueueItem{}, s.snapshot.Items...)
 	s.mu.RUnlock()
 
-	scenes, err := s.client.MissingPerformerScenes(ctx)
+	performers, err := s.client.Performers(ctx)
+	if err != nil {
+		return s.fail(err)
+	}
+	completePerformers := make([]stash.Performer, 0, len(performers))
+	performerByID := make(map[string]stash.Performer, len(performers))
+	for _, performer := range performers {
+		performerByID[performer.ID] = performer
+		if !isIncompletePerformer(performer) {
+			completePerformers = append(completePerformers, performer)
+		}
+	}
+	scenes, err := s.client.SceneItems(ctx)
 	if err != nil {
 		return s.fail(err)
 	}
@@ -126,11 +140,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 	if err != nil {
 		return s.fail(err)
 	}
-	galleries, err := s.client.MissingPerformerGalleries(ctx)
-	if err != nil {
-		return s.fail(err)
-	}
-	performers, err := s.client.Performers(ctx)
+	galleries, err := s.client.GalleryItems(ctx)
 	if err != nil {
 		return s.fail(err)
 	}
@@ -140,10 +150,14 @@ func (s *Service) Refresh(ctx context.Context) error {
 	s.mu.RUnlock()
 	items := make([]QueueItem, 0, len(scenes)+len(galleries))
 	for _, item := range scenes {
-		items = append(items, scoreItem(item, SceneItem, performers, matchCfg))
+		if queueItem, ok := buildQueueItem(item, SceneItem, performerByID, completePerformers, matchCfg); ok {
+			items = append(items, queueItem)
+		}
 	}
 	for _, item := range galleries {
-		items = append(items, scoreItem(item, GalleryItem, performers, matchCfg))
+		if queueItem, ok := buildQueueItem(item, GalleryItem, performerByID, completePerformers, matchCfg); ok {
+			items = append(items, queueItem)
+		}
 	}
 	mergeReviewState(items, previousItems)
 
@@ -179,6 +193,10 @@ func (s *Service) Refresh(ctx context.Context) error {
 			snapshot.ReviewCount++
 			continue
 		}
+		if item.Status == "repair_needed" {
+			snapshot.RepairCount++
+			continue
+		}
 		if item.Status == "suppressed" {
 			snapshot.SuppressedCount++
 			continue
@@ -202,7 +220,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 	s.snapshot = snapshot
 	s.mu.Unlock()
 
-	logging.Event(s.logger, "review_refresh_finished", "items", snapshot.ItemCount, "needs_review", snapshot.ReviewCount, "suppressed", snapshot.SuppressedCount, "no_candidate", snapshot.EmptyCount, "auto_assigned_galleries", autoAssigned)
+	logging.Event(s.logger, "review_refresh_finished", "items", snapshot.ItemCount, "needs_review", snapshot.ReviewCount, "repair_needed", snapshot.RepairCount, "suppressed", snapshot.SuppressedCount, "no_candidate", snapshot.EmptyCount, "auto_assigned_galleries", autoAssigned)
 	return nil
 }
 
@@ -282,6 +300,24 @@ func (s *Service) CandidateImage(ctx context.Context, itemID, performerID string
 	}
 
 	return stash.ImageResult{}, fmt.Errorf("item %q not found", itemID)
+}
+
+func (s *Service) RepairPerformer(ctx context.Context, performerID string) error {
+	performerID = strings.TrimSpace(performerID)
+	if performerID == "" {
+		return fmt.Errorf("performer id is required")
+	}
+	if err := s.client.RepairPerformer(ctx, performerID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.appendAuditLocked("performer_repaired", fmt.Sprintf("attempted repair for performer %s", performerID), nil)
+	if err := s.store.Save(s.snapshot); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+	return s.Refresh(ctx)
 }
 
 func (s *Service) SetReviewState(itemID string, state ReviewState) error {
@@ -421,6 +457,7 @@ func recountSnapshot(snapshot *Snapshot) {
 	snapshot.SkippedCount = 0
 	snapshot.ResolvedCount = 0
 	snapshot.ReviewCount = 0
+	snapshot.RepairCount = 0
 	snapshot.SuppressedCount = 0
 	snapshot.EmptyCount = 0
 	for _, item := range snapshot.Items {
@@ -433,6 +470,8 @@ func recountSnapshot(snapshot *Snapshot) {
 		}
 		if item.Status == "needs_review" {
 			snapshot.ReviewCount++
+		} else if item.Status == "repair_needed" {
+			snapshot.RepairCount++
 		} else if item.Status == "suppressed" {
 			snapshot.SuppressedCount++
 		} else {
@@ -459,6 +498,58 @@ func appendAuditEntry(snapshot *Snapshot, entry AuditEntry) {
 	if len(snapshot.AuditTrail) > maxAuditEntries {
 		snapshot.AuditTrail = snapshot.AuditTrail[:maxAuditEntries]
 	}
+}
+
+func buildQueueItem(item stash.MediaItem, itemType ItemType, performerByID map[string]stash.Performer, completePerformers []stash.Performer, cfg matchConfig) (QueueItem, bool) {
+	incompleteLinked := linkedIncompletePerformers(item.PerformerIDs, performerByID)
+	if len(incompleteLinked) > 0 {
+		return QueueItem{
+			ID:               item.ID,
+			Type:             itemType,
+			Title:            item.Title,
+			Details:          item.Details,
+			Path:             item.Path,
+			Tags:             append([]string{}, item.Tags...),
+			Studio:           item.Studio,
+			Status:           "repair_needed",
+			ReviewState:      ReviewPending,
+			LinkedPerformers: incompleteLinked,
+		}, true
+	}
+	if len(item.PerformerIDs) > 0 {
+		return QueueItem{}, false
+	}
+	return scoreItem(item, itemType, completePerformers, cfg), true
+}
+
+func linkedIncompletePerformers(performerIDs []string, performerByID map[string]stash.Performer) []LinkedPerformer {
+	out := make([]LinkedPerformer, 0, len(performerIDs))
+	for _, performerID := range performerIDs {
+		performer, ok := performerByID[performerID]
+		if !ok || !isIncompletePerformer(performer) {
+			continue
+		}
+		stashIDs := make([]string, 0, len(performer.StashIDs))
+		for _, stashID := range performer.StashIDs {
+			stashIDs = append(stashIDs, stashID.Endpoint+":"+stashID.StashID)
+		}
+		out = append(out, LinkedPerformer{
+			PerformerID: performer.ID,
+			Name:        performer.Name,
+			ImageURL:    performer.ImageURL,
+			Gender:      performer.Gender,
+			Incomplete:  true,
+			CanRepair:   len(performer.StashIDs) > 0,
+			StashIDs:    stashIDs,
+		})
+	}
+	return out
+}
+
+func isIncompletePerformer(performer stash.Performer) bool {
+	return strings.TrimSpace(performer.Name) == "" &&
+		strings.TrimSpace(performer.Gender) == "" &&
+		strings.TrimSpace(performer.ImageURL) == ""
 }
 
 func uniqueItemIDs(itemIDs []string) []string {

@@ -7,6 +7,7 @@ const els = {
   skippedCount: document.getElementById("skipped-count"),
   resolvedCount: document.getElementById("resolved-count"),
   reviewCount: document.getElementById("review-count"),
+  repairCount: document.getElementById("repair-count"),
   suppressedCount: document.getElementById("suppressed-count"),
   emptyCount: document.getElementById("empty-count"),
   settingsMinScore: document.getElementById("settings-min-score"),
@@ -32,6 +33,8 @@ const els = {
   detailTags: document.getElementById("detail-tags"),
   detailBody: document.getElementById("detail-body"),
   assignmentMeta: document.getElementById("assignment-meta"),
+  linkedPerformersBox: document.getElementById("linked-performers-box"),
+  linkedPerformers: document.getElementById("linked-performers"),
   manualSearchQuery: document.getElementById("manual-search-query"),
   manualSearchButton: document.getElementById("manual-search-button"),
   manualSearchStatus: document.getElementById("manual-search-status"),
@@ -120,6 +123,7 @@ function render(status) {
   els.skippedCount.textContent = String(status.skipped_count || 0);
   els.resolvedCount.textContent = String(status.resolved_count || 0);
   els.reviewCount.textContent = String(status.review_count || 0);
+  els.repairCount.textContent = String(status.repair_count || 0);
   els.suppressedCount.textContent = String(status.suppressed_count || 0);
   els.emptyCount.textContent = String(status.empty_count || 0);
   els.settingsMinScore.value = String(status.match_min_score || 0);
@@ -151,6 +155,10 @@ function renderAudit(entries) {
   }
 }
 
+function repairButtonHTML(performerID, disabled) {
+  return `<button type="button" class="repair-performer" data-performer-id="${escapeAttr(performerID)}" ${disabled ? "disabled" : ""}>Repair</button>`;
+}
+
 function renderQueue(items) {
   els.queue.innerHTML = "";
   els.queueEmpty.style.display = items.length ? "none" : "block";
@@ -161,7 +169,7 @@ function renderQueue(items) {
       <div class="item-head">
         <input class="selector" type="checkbox" aria-label="Select item" ${selectedIDs.has(item.id) ? "checked" : ""}>
         <strong>${escapeHTML(item.title || "(untitled)")}</strong>
-        <span class="pill ${item.review_state === "skipped" ? "ok" : ""}">${escapeHTML(item.review_state || "pending")}</span>
+        <span class="pill ${item.review_state === "skipped" ? "ok" : item.status === "repair_needed" ? "warn" : ""}">${escapeHTML(item.review_state || "pending")}</span>
       </div>
       <div class="sub">${escapeHTML(item.type)} • ${escapeHTML(item.status.replace("_", " "))} • ${item.candidate_count} candidates • score ${item.best_score}</div>
       ${item.suppression_reason ? `<div class="sub">${escapeHTML(describeSuppression(item.suppression_reason))}</div>` : ""}
@@ -215,6 +223,7 @@ function renderDetail(item) {
     ? `Resolved ${fmt(item.resolved_at)}${item.assigned_performer_ids?.length ? ` • performer ids: ${item.assigned_performer_ids.join(", ")}` : ""}`
     : "";
 
+  renderLinkedPerformers(item);
   els.candidates.innerHTML = "";
   if (!item.candidates || !item.candidates.length) {
     els.candidates.innerHTML = `<div class="empty">${escapeHTML(item.suppression_reason ? describeSuppression(item.suppression_reason) : "No likely performer candidates yet.")}</div>`;
@@ -232,8 +241,9 @@ function renderDetail(item) {
           <div class="sub">Score ${candidate.score}</div>
         <div class="reason">${escapeHTML((candidate.reasons || []).join(", ") || "no reason recorded")}</div>
         <div style="margin-top:12px;">
-          <button type="button" class="assign-candidate" data-item-id="${escapeAttr(item.id)}" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" ? "disabled" : ""}>Assign</button>
-          <button type="button" class="assign-selected" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || selectedIDs.size === 0 ? "disabled" : ""}>Assign Selected</button>
+          <button type="button" class="assign-candidate" data-item-id="${escapeAttr(item.id)}" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || candidate.incomplete ? "disabled" : ""}>Assign</button>
+          <button type="button" class="assign-selected" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || selectedIDs.size === 0 || candidate.incomplete ? "disabled" : ""}>Assign Selected</button>
+          ${candidate.incomplete && candidate.can_repair ? repairButtonHTML(candidate.performer_id, false) : ""}
         </div>
       </div>
       `;
@@ -241,6 +251,35 @@ function renderDetail(item) {
     }
   }
   bindAssignButtons(els.candidates);
+  bindRepairButtons(els.candidates);
+}
+
+function renderLinkedPerformers(item) {
+  els.linkedPerformers.innerHTML = "";
+  const linked = item.linked_performers || [];
+  els.linkedPerformersBox.hidden = linked.length === 0;
+  if (!linked.length) return;
+  for (const performer of linked) {
+    const card = document.createElement("article");
+    card.className = "candidate";
+    const stashIDs = performer.stash_ids?.length ? performer.stash_ids.join(", ") : "No stash ids";
+    const img = performer.image_url
+      ? `<img src="${escapeAttr(performer.image_url)}" alt="${escapeAttr(performer.name || "Performer")}" loading="lazy" referrerpolicy="no-referrer">`
+      : `<img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Crect width='400' height='400' fill='%23ece3d7'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%238a7d6e' font-size='28' font-family='Arial'%3ERepair%3C/text%3E%3C/svg%3E">`;
+    card.innerHTML = `
+      ${img}
+      <div class="candidate-body">
+        <strong>${escapeHTML(performer.name || "(unnamed performer)")}</strong>
+        <div class="sub">gender ${escapeHTML(performer.gender || "-")} • incomplete performer</div>
+        <div class="reason">${escapeHTML(stashIDs)}</div>
+        <div style="margin-top:12px;">
+          ${repairButtonHTML(performer.performer_id, !performer.can_repair)}
+        </div>
+      </div>
+    `;
+    els.linkedPerformers.appendChild(card);
+  }
+  bindRepairButtons(els.linkedPerformers);
 }
 
 function candidateImageURL(itemID, performerID) {
@@ -318,6 +357,16 @@ async function assignCandidateBulk(itemIDs, performerID) {
   await loadStatus();
 }
 
+async function repairPerformer(performerID) {
+  const res = await fetch("api/performers/repair", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ performer_id: performerID }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  await loadStatus();
+}
+
 async function searchPerformers(query) {
   const params = new URLSearchParams({ q: query });
   const res = await fetch(`api/performers/search?${params.toString()}`);
@@ -355,6 +404,19 @@ function bindAssignButtons(root) {
   }
 }
 
+function bindRepairButtons(root) {
+  for (const button of root.querySelectorAll(".repair-performer")) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await repairPerformer(button.dataset.performerId);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
+}
+
 function resetManualSearch(itemID) {
   manualSearchItemID = itemID;
   els.manualSearchQuery.value = "";
@@ -382,16 +444,18 @@ function renderManualSearchResults(item, results) {
         <strong>${escapeHTML(candidate.name)}</strong>
         <div class="sub">Score ${candidate.score}</div>
         <div class="reason">${escapeHTML((candidate.reasons || []).join(", ") || aliases)}</div>
-        <div class="sub">${escapeHTML(aliases)}</div>
+        <div class="sub">${escapeHTML(aliases)}${candidate.incomplete ? " • incomplete performer" : ""}</div>
         <div style="margin-top:12px;">
-          <button type="button" class="assign-candidate" data-item-id="${escapeAttr(item.id)}" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" ? "disabled" : ""}>Assign</button>
-          <button type="button" class="assign-selected" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || selectedIDs.size === 0 ? "disabled" : ""}>Assign Selected</button>
+          <button type="button" class="assign-candidate" data-item-id="${escapeAttr(item.id)}" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || candidate.incomplete ? "disabled" : ""}>Assign</button>
+          <button type="button" class="assign-selected" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || selectedIDs.size === 0 || candidate.incomplete ? "disabled" : ""}>Assign Selected</button>
+          ${candidate.incomplete && candidate.can_repair ? repairButtonHTML(candidate.performer_id, false) : ""}
         </div>
       </div>
     `;
     els.manualSearchResults.appendChild(card);
   }
   bindAssignButtons(els.manualSearchResults);
+  bindRepairButtons(els.manualSearchResults);
 }
 
 function schedule() {

@@ -5,32 +5,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Stash Reviewer</title>
   <style>
-    :root { color-scheme: light; --bg:#f4f0e8; --panel:#fffdfa; --ink:#1d1a16; --muted:#665e56; --line:#d7cab7; --accent:#8c3b2b; --accent-soft:#f5ddd6; --ok:#2a6b51; --ok-soft:#deefe7; --shadow:0 20px 40px rgba(29,26,22,.08); font-family:"IBM Plex Sans","Avenir Next",sans-serif; }
+    :root { color-scheme: light; --bg:#f4f0e8; --panel:#fffdfa; --panel-soft:rgba(255,253,250,.78); --ink:#1d1a16; --muted:#665e56; --line:#d7cab7; --accent:#8c3b2b; --accent-soft:#f5ddd6; --ok:#2a6b51; --ok-soft:#deefe7; --warn:#8a5a20; --warn-soft:#f5e8d6; --shadow:0 24px 50px rgba(29,26,22,.08); font-family:"IBM Plex Sans","Avenir Next",sans-serif; }
     * { box-sizing:border-box; }
-    body { margin:0; color:var(--ink); background:linear-gradient(180deg,#efe4d5,#f8f5ef 48%,#e6eee8); }
+    body { margin:0; color:var(--ink); background:
+      radial-gradient(circle at top left, rgba(255,255,255,.68), transparent 28%),
+      radial-gradient(circle at top right, rgba(245,221,214,.62), transparent 24%),
+      linear-gradient(160deg,#efe4d5,#f8f5ef 55%,#e6eee8); }
     main { max-width:1280px; margin:0 auto; padding:28px 18px 42px; }
-    h1 { margin:0; font-size:2.5rem; letter-spacing:-0.05em; }
-    p { color:var(--muted); }
-    button { border:0; border-radius:999px; background:var(--accent); color:#fff; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; }
+    h1 { margin:0 0 10px; font-size:2.5rem; letter-spacing:-0.05em; }
+    p { margin:0; color:var(--muted); line-height:1.6; }
+    button { border:0; border-radius:999px; background:var(--accent); color:#fff; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; transition:transform .15s ease, opacity .15s ease, box-shadow .15s ease; box-shadow:0 12px 24px rgba(140,59,43,.14); }
     button[disabled] { opacity:.6; cursor:not-allowed; }
     button.secondary { background:#efe5d8; color:var(--ink); }
-    .hero, .status, .stats, .layout { display:grid; gap:16px; }
+    button:hover:not([disabled]) { transform:translateY(-1px); box-shadow:0 14px 28px rgba(29,26,22,.14); }
+    .hero, .stats, .layout { display:grid; gap:16px; }
     .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .nav { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
-    .nav a { text-decoration:none; color:var(--ink); background:rgba(255,253,250,.84); border:1px solid var(--line); padding:10px 14px; border-radius:999px; font-weight:700; }
+    .nav a { text-decoration:none; color:var(--ink); background:var(--panel-soft); border:1px solid var(--line); padding:10px 14px; border-radius:999px; font-weight:700; backdrop-filter:blur(12px); }
     .nav a.active { background:var(--accent-soft); color:var(--accent); }
-    .hero { grid-template-columns:1.8fr auto; align-items:start; }
-    .status { grid-template-columns:auto 1fr auto; align-items:center; margin:20px 0; padding:14px 16px; border:1px solid var(--line); border-radius:18px; background:rgba(255,253,250,.84); box-shadow:var(--shadow); }
+    .hero { grid-template-columns:minmax(0,1.8fr) auto; align-items:start; margin-bottom:22px; }
+    .hero-copy { max-width:64ch; }
+    .hero-actions { padding:14px; border:1px solid rgba(215,202,183,.82); border-radius:22px; background:var(--panel-soft); box-shadow:var(--shadow); backdrop-filter:blur(14px); }
+    .status { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; gap:12px; align-items:center; margin:0 0 18px; padding:14px 16px; border:1px solid var(--line); border-radius:18px; background:var(--panel-soft); box-shadow:var(--shadow); backdrop-filter:blur(12px); }
     .dot { width:12px; height:12px; border-radius:50%; background:#b3a48f; }
     .dot.live { background:var(--accent); box-shadow:0 0 0 8px rgba(140,59,43,.12); }
+    .status-meta { color:var(--muted); font-size:.92rem; }
+    .status-settings { display:flex; gap:12px; align-items:center; justify-content:flex-end; flex-wrap:wrap; }
+    .status-settings label { color:var(--muted); font-size:.93rem; }
+    .status-settings input { margin-left:8px; width:88px; border:1px solid var(--line); border-radius:999px; padding:10px 14px; font:inherit; background:#fffdfa; color:var(--ink); }
     .stats { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); margin-bottom:18px; }
     .card, .panel { background:var(--panel); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow); }
-    .card { padding:18px; }
+    .card { padding:18px; min-height:142px; }
     .label { text-transform:uppercase; letter-spacing:.1em; font-size:.78rem; color:var(--muted); }
     .value { margin-top:10px; font-size:1.8rem; font-weight:700; }
     .sub { margin-top:8px; color:var(--muted); font-size:.93rem; }
     .layout { grid-template-columns:minmax(320px,.95fr) minmax(0,1.4fr); align-items:start; }
-    .panel { padding:18px; min-height:540px; }
+    .panel { padding:20px; min-height:540px; }
     .list { display:grid; gap:12px; max-height:720px; overflow:auto; padding-right:6px; }
     .item { border:1px solid rgba(215,202,183,.85); border-radius:18px; padding:14px; background:#fff; cursor:pointer; }
     .item.active { border-color:var(--accent); box-shadow:0 0 0 3px rgba(140,59,43,.1); }
@@ -38,17 +48,18 @@
     .selector { width:18px; height:18px; margin-top:2px; accent-color:var(--accent); }
     .pill { display:inline-flex; padding:6px 10px; border-radius:999px; font-size:.78rem; font-weight:700; background:var(--accent-soft); color:var(--accent); }
     .pill.ok { background:var(--ok-soft); color:var(--ok); }
+    .pill.warn { background:var(--warn-soft); color:var(--warn); }
     .mono { font-family:"IBM Plex Mono","SFMono-Regular",monospace; font-size:.85rem; }
     .kv { display:grid; gap:10px; margin:16px 0; }
     .row { display:flex; gap:12px; justify-content:space-between; }
     .row strong { font-size:.92rem; }
     .row span { color:var(--muted); text-align:right; }
     .candidates { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); margin-top:18px; }
-    .candidate { border:1px solid rgba(215,202,183,.85); border-radius:20px; overflow:hidden; background:#fff; }
+    .candidate { border:1px solid rgba(215,202,183,.85); border-radius:20px; overflow:hidden; background:#fff; box-shadow:0 12px 28px rgba(29,26,22,.06); }
     .candidate img { display:block; width:100%; aspect-ratio:1/1; object-fit:cover; background:#ece3d7; }
     .candidate-body { padding:14px; }
     .reason { color:var(--muted); font-size:.88rem; }
-    .search-box { margin-top:18px; padding:16px; border:1px solid rgba(215,202,183,.85); border-radius:18px; background:#fff; }
+    .search-box { margin-top:18px; padding:16px; border:1px solid rgba(215,202,183,.85); border-radius:18px; background:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
     .search-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
     .search-row input { flex:1 1 220px; min-width:0; border:1px solid var(--line); border-radius:999px; padding:12px 16px; font:inherit; background:#fffdfa; color:var(--ink); }
     .empty { color:var(--muted); padding:10px 0; }
@@ -56,9 +67,12 @@
     .filters button { background:#efe5d8; color:var(--ink); }
     .filters button.active { background:var(--accent); color:#fff; }
     .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+    #detail { position:sticky; top:18px; }
     @media (max-width: 900px) {
       .hero, .layout { grid-template-columns:1fr; }
       .status { grid-template-columns:auto 1fr; }
+      .status-meta, .status-settings { grid-column:1 / -1; justify-content:flex-start; }
+      #detail { position:static; }
     }
   </style>
 </head>
@@ -69,25 +83,26 @@
       <a href="/reviewer/" class="active">Reviewer</a>
     </nav>
     <section class="hero">
-      <div>
+      <div class="hero-copy">
         <h1>Performer Reviewer</h1>
         <p>Review scenes and galleries with no performers, keep a persistent queue state, and prepare for manual write-back workflows.</p>
       </div>
-      <div class="toolbar"><button id="refresh">Refresh Queue</button></div>
+      <div class="toolbar hero-actions"><button id="refresh">Refresh Queue</button></div>
     </section>
     <section class="status">
       <strong>Matcher Settings</strong>
-      <div class="toolbar">
-        <label class="sub">Min Score <input id="settings-min-score" type="number" min="1" step="1" style="margin-left:8px; width:88px;"></label>
-        <label class="sub">Min Lead <input id="settings-min-lead" type="number" min="0" step="1" style="margin-left:8px; width:88px;"></label>
+      <div id="settings-status" class="status-meta">Using current reviewer thresholds.</div>
+      <div class="status-settings">
+        <label>Min Score <input id="settings-min-score" type="number" min="1" step="1"></label>
+        <label>Min Lead <input id="settings-min-lead" type="number" min="0" step="1"></label>
         <button id="settings-save" type="button" class="secondary">Apply</button>
       </div>
-      <span id="settings-status" class="sub">Using current reviewer thresholds.</span>
     </section>
     <section class="status">
       <span id="dot" class="dot"></span>
       <strong id="status-text">Loading</strong>
-      <span id="refreshed" class="sub">Waiting for first refresh</span>
+      <span class="pill">Queue</span>
+      <span id="refreshed" class="status-meta">Waiting for first refresh</span>
     </section>
     <section class="stats">
       <article class="card"><div class="label">Items</div><div id="item-count" class="value">-</div><div class="sub">Scenes and galleries missing performers</div></article>
@@ -95,6 +110,7 @@
       <article class="card"><div class="label">Skipped</div><div id="skipped-count" class="value">-</div><div class="sub">Hidden from active work</div></article>
       <article class="card"><div class="label">Resolved</div><div id="resolved-count" class="value">-</div><div class="sub">Assigned by automation or review</div></article>
       <article class="card"><div class="label">Needs Review</div><div id="review-count" class="value">-</div><div class="sub">Has candidate performers</div></article>
+      <article class="card"><div class="label">Repair Needed</div><div id="repair-count" class="value">-</div><div class="sub">Linked performers missing core data</div></article>
       <article class="card"><div class="label">Suppressed</div><div id="suppressed-count" class="value">-</div><div class="sub">Filtered by weak or ambiguous matching</div></article>
       <article class="card"><div class="label">No Candidate</div><div id="empty-count" class="value">-</div><div class="sub">No detectable performer signal yet</div></article>
     </section>
@@ -135,6 +151,10 @@
             <button id="reopen-item" type="button" class="secondary">Reopen Item</button>
           </div>
           <div id="assignment-meta" class="sub"></div>
+          <section id="linked-performers-box" class="search-box" hidden>
+            <div class="label">Linked Performers Needing Repair</div>
+            <div id="linked-performers" class="candidates"></div>
+          </section>
           <section class="search-box">
             <div class="label">Manual Performer Search</div>
             <div class="search-row">

@@ -26,7 +26,10 @@ func searchPerformers(query string, performers []stash.Performer) []Candidate {
 			PerformerID: performer.ID,
 			Name:        performer.Name,
 			ImageURL:    performer.ImageURL,
+			Gender:      performer.Gender,
 			Aliases:     append([]string{}, performer.Aliases...),
+			Incomplete:  isIncompletePerformer(performer),
+			CanRepair:   len(performer.StashIDs) > 0,
 			Score:       score,
 			Reasons:     reasons,
 		})

@@ -19,13 +19,14 @@ type fakeStashClient struct {
 	autoAssigned   int
 	sceneAssigns   map[string][]string
 	galleryAssigns map[string][]string
+	repaired       []string
 }
 
-func (f *fakeStashClient) MissingPerformerScenes(context.Context) ([]stash.MediaItem, error) {
+func (f *fakeStashClient) SceneItems(context.Context) ([]stash.MediaItem, error) {
 	return f.scenes, nil
 }
 
-func (f *fakeStashClient) MissingPerformerGalleries(context.Context) ([]stash.MediaItem, error) {
+func (f *fakeStashClient) GalleryItems(context.Context) ([]stash.MediaItem, error) {
 	return f.galleries, nil
 }
 
@@ -54,6 +55,11 @@ func (f *fakeStashClient) AssignGalleryPerformers(_ context.Context, galleryID s
 		f.galleryAssigns = map[string][]string{}
 	}
 	f.galleryAssigns[galleryID] = append([]string{}, performerIDs...)
+	return nil
+}
+
+func (f *fakeStashClient) RepairPerformer(_ context.Context, performerID string) error {
+	f.repaired = append(f.repaired, performerID)
 	return nil
 }
 
@@ -139,6 +145,72 @@ func TestRefreshTracksSuppressedItemsSeparately(t *testing.T) {
 	}
 	if got, want := status.Items[0].Status, "suppressed"; got != want {
 		t.Fatalf("item status mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestRefreshIncludesItemsWithIncompleteLinkedPerformers(t *testing.T) {
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		&fakeStashClient{
+			scenes: []stash.MediaItem{{
+				ID:           "scene-1",
+				Title:        "Existing linked performer",
+				Path:         "/media/scene.mp4",
+				PerformerIDs: []string{"perf-1"},
+			}},
+			performers: []stash.Performer{{
+				ID:       "perf-1",
+				StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", StashID: "abc"}},
+			}},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	status := service.Status()
+	if got, want := status.RepairCount, 1; got != want {
+		t.Fatalf("repair count mismatch: got %d want %d", got, want)
+	}
+	if got, want := status.Items[0].Status, "repair_needed"; got != want {
+		t.Fatalf("item status mismatch: got %q want %q", got, want)
+	}
+	if len(status.Items[0].LinkedPerformers) != 1 {
+		t.Fatalf("expected linked incomplete performer, got %#v", status.Items[0].LinkedPerformers)
+	}
+}
+
+func TestRepairPerformerRefreshesQueue(t *testing.T) {
+	client := &fakeStashClient{
+		scenes: []stash.MediaItem{{
+			ID:           "scene-1",
+			Title:        "Existing linked performer",
+			Path:         "/media/scene.mp4",
+			PerformerIDs: []string{"perf-1"},
+		}},
+		performers: []stash.Performer{{ID: "perf-1", StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", StashID: "abc"}}}},
+	}
+	service, err := NewService(NewStore(filepath.Join(t.TempDir(), "queue.json")), client, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	client.performers = []stash.Performer{{ID: "perf-1", Name: "Jane Doe", Gender: "FEMALE", ImageURL: "https://img/jane.jpg", StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", StashID: "abc"}}}}
+
+	if err := service.RepairPerformer(context.Background(), "perf-1"); err != nil {
+		t.Fatalf("RepairPerformer: %v", err)
+	}
+	if got, want := strings.Join(client.repaired, ","), "perf-1"; got != want {
+		t.Fatalf("repaired mismatch: got %q want %q", got, want)
+	}
+	if got, want := service.Status().ItemCount, 0; got != want {
+		t.Fatalf("expected repaired item to drop from queue, got %d", got)
 	}
 }
 

@@ -163,21 +163,41 @@ type gqlResponse struct {
 			Count     int             `json:"count"`
 			Galleries []galleryRecord `json:"galleries"`
 		} `json:"findGalleries"`
+		FindPerformer struct {
+			ID        string   `json:"id"`
+			Name      string   `json:"name"`
+			Gender    string   `json:"gender"`
+			Aliases   []string `json:"aliases"`
+			ImagePath string   `json:"image_path"`
+			StashIDs  []struct {
+				Endpoint string `json:"endpoint"`
+				StashID  string `json:"stash_id"`
+			} `json:"stash_ids"`
+		} `json:"findPerformer"`
 		FindPerformers struct {
 			Count      int `json:"count"`
 			Performers []struct {
 				ID        string   `json:"id"`
 				Name      string   `json:"name"`
+				Gender    string   `json:"gender"`
 				Aliases   []string `json:"aliases"`
 				ImagePath string   `json:"image_path"`
+				StashIDs  []struct {
+					Endpoint string `json:"endpoint"`
+					StashID  string `json:"stash_id"`
+				} `json:"stash_ids"`
 			} `json:"performers"`
 		} `json:"findPerformers"`
-		SceneUpdate *struct {
+		ScrapeSinglePerformer []scrapedPerformerRecord `json:"scrapeSinglePerformer"`
+		SceneUpdate           *struct {
 			ID string `json:"id"`
 		} `json:"sceneUpdate"`
 		GalleryUpdate *struct {
 			ID string `json:"id"`
 		} `json:"galleryUpdate"`
+		PerformerUpdate *struct {
+			ID string `json:"id"`
+		} `json:"performerUpdate"`
 	} `json:"data"`
 	Errors []gqlError `json:"errors"`
 }

@@ -54,6 +54,7 @@ func scoreItem(item stash.MediaItem, itemType ItemType, performers []stash.Perfo
 			PerformerID: performer.ID,
 			Name:        performer.Name,
 			ImageURL:    performer.ImageURL,
+			Gender:      performer.Gender,
 			Aliases:     append([]string{}, performer.Aliases...),
 			Score:       score,
 			Reasons:     reasons,

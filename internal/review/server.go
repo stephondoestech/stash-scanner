@@ -189,6 +189,24 @@ func RegisterRoutes(mux *http.ServeMux, prefix string, service *Service) {
 		}
 		writeJSON(w, http.StatusOK, results)
 	})
+	mux.HandleFunc(base+"api/performers/repair", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			PerformerID string `json:"performer_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		if err := service.RepairPerformer(r.Context(), strings.TrimSpace(payload.PerformerID)); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "repaired"})
+	})
 	mux.HandleFunc(base+"api/candidate-image", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

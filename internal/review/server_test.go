@@ -310,3 +310,36 @@ func TestSettingsHandlerUpdatesReviewerThresholds(t *testing.T) {
 		t.Fatalf("min lead mismatch: got %d want %d", got, want)
 	}
 }
+
+func TestRepairPerformerHandlerRunsRepair(t *testing.T) {
+	client := &fakeStashClient{
+		scenes: []stash.MediaItem{{
+			ID:           "scene-1",
+			Title:        "Existing linked performer",
+			Path:         "/media/scene.mp4",
+			PerformerIDs: []string{"perf-1"},
+		}},
+		performers: []stash.Performer{{ID: "perf-1", StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", StashID: "abc"}}}},
+	}
+	service, err := NewService(NewStore(filepath.Join(t.TempDir(), "queue.json")), client, log.New(io.Discard, "", 0))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	client.performers = []stash.Performer{{ID: "perf-1", Name: "Jane Doe", Gender: "FEMALE", ImageURL: "https://img/jane.jpg", StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", StashID: "abc"}}}}
+
+	server := NewServer("127.0.0.1:0", service, log.New(io.Discard, "", 0))
+	req := httptest.NewRequest(http.MethodPost, "/api/performers/repair", strings.NewReader(`{"performer_id":"perf-1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+	if got, want := strings.Join(client.repaired, ","), "perf-1"; got != want {
+		t.Fatalf("repair call mismatch: got %q want %q", got, want)
+	}
+}

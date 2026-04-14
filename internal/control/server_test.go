@@ -198,11 +198,11 @@ func (f *fakeRunner) FlushPendingDebounce() error {
 	return f.flushErr
 }
 
-func (f *fakeReviewClient) MissingPerformerScenes(context.Context) ([]stash.MediaItem, error) {
+func (f *fakeReviewClient) SceneItems(context.Context) ([]stash.MediaItem, error) {
 	return f.scenes, nil
 }
 
-func (f *fakeReviewClient) MissingPerformerGalleries(context.Context) ([]stash.MediaItem, error) {
+func (f *fakeReviewClient) GalleryItems(context.Context) ([]stash.MediaItem, error) {
 	return f.galleries, nil
 }
 
@@ -223,5 +223,9 @@ func (f *fakeReviewClient) AssignScenePerformers(context.Context, string, []stri
 }
 
 func (f *fakeReviewClient) AssignGalleryPerformers(context.Context, string, []string) error {
+	return nil
+}
+
+func (f *fakeReviewClient) RepairPerformer(context.Context, string) error {
 	return nil
 }
