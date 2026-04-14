@@ -46,6 +46,14 @@ let filter = "active";
 let manualSearchItemID = "";
 const selectedIDs = new Set();
 
+function describeSuppression(reason) {
+  switch (reason) {
+    case "ambiguous_match": return "suppressed: ambiguous top match";
+    case "weak_signal": return "suppressed: weak signal";
+    default: return "";
+  }
+}
+
 function fmt(value) {
   if (!value || value === "0001-01-01T00:00:00Z") return "Never";
   return new Date(value).toLocaleString();
@@ -125,6 +133,7 @@ function renderQueue(items) {
         <span class="pill ${item.review_state === "skipped" ? "ok" : ""}">${escapeHTML(item.review_state || "pending")}</span>
       </div>
       <div class="sub">${escapeHTML(item.type)} • ${escapeHTML(item.status.replace("_", " "))} • ${item.candidate_count} candidates • score ${item.best_score}</div>
+      ${item.suppression_reason ? `<div class="sub">${escapeHTML(describeSuppression(item.suppression_reason))}</div>` : ""}
       <div class="sub mono">${escapeHTML(item.path || "-")}</div>
     `;
     const checkbox = card.querySelector(".selector");
@@ -162,7 +171,8 @@ function renderDetail(item) {
   }
 
   els.detailTitle.textContent = item.title || "(untitled)";
-  els.detailStatus.textContent = `${item.review_state || "pending"} • ${item.status.replace("_", " ")} • ${item.candidate_count} candidates`;
+  const suppression = item.suppression_reason ? ` • ${describeSuppression(item.suppression_reason)}` : "";
+  els.detailStatus.textContent = `${item.review_state || "pending"} • ${item.status.replace("_", " ")} • ${item.candidate_count} candidates${suppression}`;
   els.detailType.textContent = item.type;
   els.detailPath.textContent = item.path || "-";
   els.detailStudio.textContent = item.studio || "-";
@@ -176,7 +186,7 @@ function renderDetail(item) {
 
   els.candidates.innerHTML = "";
   if (!item.candidates || !item.candidates.length) {
-    els.candidates.innerHTML = `<div class="empty">No likely performer candidates yet.</div>`;
+    els.candidates.innerHTML = `<div class="empty">${escapeHTML(item.suppression_reason ? describeSuppression(item.suppression_reason) : "No likely performer candidates yet.")}</div>`;
   } else {
     for (const candidate of item.candidates) {
       const card = document.createElement("article");

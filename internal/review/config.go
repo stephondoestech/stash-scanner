@@ -3,6 +3,7 @@ package review
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -13,12 +14,16 @@ type Config struct {
 	QueuePath       string
 	Bind            string
 	RefreshInterval time.Duration
+	MinScore        int
+	MinLead         int
 }
 
 func LoadConfig() (Config, error) {
 	cfg := Config{
 		QueuePath: "data/reviewer-queue.json",
 		Bind:      "127.0.0.1:8090",
+		MinScore:  defaultMatchConfig().MinCandidateScore,
+		MinLead:   defaultMatchConfig().MinCandidateLead,
 	}
 
 	cfg.StashURL = firstEnv("STASH_REVIEWER_STASH_URL", "STASH_SCANNER_STASH_URL")
@@ -36,6 +41,20 @@ func LoadConfig() (Config, error) {
 		}
 		cfg.RefreshInterval = interval
 	}
+	if value := strings.TrimSpace(os.Getenv("STASH_REVIEWER_MIN_SCORE")); value != "" {
+		minScore, err := strconv.Atoi(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse STASH_REVIEWER_MIN_SCORE: %w", err)
+		}
+		cfg.MinScore = minScore
+	}
+	if value := strings.TrimSpace(os.Getenv("STASH_REVIEWER_MIN_LEAD")); value != "" {
+		minLead, err := strconv.Atoi(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse STASH_REVIEWER_MIN_LEAD: %w", err)
+		}
+		cfg.MinLead = minLead
+	}
 
 	if cfg.StashURL == "" {
 		return Config{}, fmt.Errorf("stash URL is required")
@@ -51,6 +70,12 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.RefreshInterval < 0 {
 		return Config{}, fmt.Errorf("refresh interval must be zero or greater")
+	}
+	if cfg.MinScore < 1 {
+		return Config{}, fmt.Errorf("min score must be at least 1")
+	}
+	if cfg.MinLead < 0 {
+		return Config{}, fmt.Errorf("min lead must be zero or greater")
 	}
 
 	return cfg, nil

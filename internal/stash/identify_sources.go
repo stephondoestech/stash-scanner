@@ -44,16 +44,9 @@ func (c *Client) discoverIdentifySources(ctx context.Context) (identifySources, 
 		return identifySources{}, err
 	}
 
-	if sources := identifySourcesFromDefaults(response); len(sources.stashBoxEndpoints)+len(sources.scraperIDs) > 0 {
-		return sources, nil
-	}
-
-	sources := identifySources{
-		stashBoxEndpoints: uniqueNonEmpty(mapStashBoxEndpoints(response.Data.Configuration.General.StashBoxes)),
-		scraperIDs:        discoverFragmentSceneScrapers(response.Data.ListScrapers),
-	}
+	sources := identifySourcesFromDefaults(response)
 	if len(sources.stashBoxEndpoints)+len(sources.scraperIDs) == 0 {
-		return identifySources{}, fmt.Errorf("stash returned no identify sources")
+		return identifySources{}, fmt.Errorf("stash returned no default identify sources; configure STASH_SCANNER_IDENTIFY_* explicitly")
 	}
 	return sources, nil
 }

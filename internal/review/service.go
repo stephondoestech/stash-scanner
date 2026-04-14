@@ -28,6 +28,7 @@ type Service struct {
 	store  *Store
 	client stashClient
 	now    func() time.Time
+	match  matchConfig
 
 	performers []stash.Performer
 	mu         sync.RWMutex
@@ -56,8 +57,21 @@ func NewService(store *Store, client stashClient, logger *log.Logger) (*Service,
 		store:    store,
 		client:   client,
 		now:      func() time.Time { return time.Now().UTC() },
+		match:    defaultMatchConfig(),
 		snapshot: snapshot,
 	}, nil
+}
+
+func (s *Service) SetMatchConfig(cfg matchConfig) {
+	if cfg.MinCandidateScore < 1 {
+		cfg.MinCandidateScore = defaultMatchConfig().MinCandidateScore
+	}
+	if cfg.MinCandidateLead < 0 {
+		cfg.MinCandidateLead = defaultMatchConfig().MinCandidateLead
+	}
+	s.mu.Lock()
+	s.match = cfg
+	s.mu.Unlock()
 }
 
 func (s *Service) Status() Status {
@@ -108,12 +122,15 @@ func (s *Service) Refresh(ctx context.Context) error {
 		return s.fail(err)
 	}
 
+	s.mu.RLock()
+	matchCfg := s.match
+	s.mu.RUnlock()
 	items := make([]QueueItem, 0, len(scenes)+len(galleries))
 	for _, item := range scenes {
-		items = append(items, scoreItem(item, SceneItem, performers))
+		items = append(items, scoreItem(item, SceneItem, performers, matchCfg))
 	}
 	for _, item := range galleries {
-		items = append(items, scoreItem(item, GalleryItem, performers))
+		items = append(items, scoreItem(item, GalleryItem, performers, matchCfg))
 	}
 	mergeReviewState(items, previousItems)
 

@@ -35,6 +35,7 @@ type QueueItem struct {
 	Tags                 []string    `json:"tags,omitempty"`
 	Studio               string      `json:"studio,omitempty"`
 	Status               string      `json:"status"`
+	SuppressionReason    string      `json:"suppression_reason,omitempty"`
 	ReviewState          ReviewState `json:"review_state"`
 	ReviewedAt           time.Time   `json:"reviewed_at,omitempty"`
 	ResolvedAt           time.Time   `json:"resolved_at,omitempty"`

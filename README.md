@@ -137,6 +137,8 @@ Reviewer runtime:
 - `STASH_REVIEWER_BIND` - bind address for the reviewer UI, default `127.0.0.1:8090`
 - `STASH_REVIEWER_QUEUE_PATH` - where the reviewer stores its local queue snapshot, default `data/reviewer-queue.json`
 - `STASH_REVIEWER_REFRESH_INTERVAL` - optional background refresh interval; by default the reviewer refreshes once at startup and on manual request only
+- `STASH_REVIEWER_MIN_SCORE` - minimum reviewer candidate score required before a suggestion is shown
+- `STASH_REVIEWER_MIN_LEAD` - minimum score lead the top candidate must have over the runner-up to avoid suppression as ambiguous
 
 ## Commands
 
@@ -170,7 +172,8 @@ API:
 - `dry_run=false` sends real `metadataScan` requests to Stash.
 - `debug=true` enables verbose operational logging for troubleshooting.
 - a successful debounce target run always performs the selective `metadataScan` first; post-scan tasks then run in this order: `identify`, `auto_tag`, `clean`
-- `identify` now auto-discovers sources from Stash when local `STASH_SCANNER_IDENTIFY_*` overrides are not set. It first uses Stash's configured default identify sources; if those are empty, it falls back to configured stash-box endpoints plus installed scene scrapers that support fragment identification.
+- `identify` now auto-discovers only Stash's configured default identify sources when local `STASH_SCANNER_IDENTIFY_*` overrides are not set.
+- if Stash has no default identify sources configured, `identify` now fails fast and requires explicit `STASH_SCANNER_IDENTIFY_*` settings instead of widening to every discovered stash box or scraper.
 - `post_scan_tasks=auto_tag,identify` still works, but task execution is normalized to `identify` before `auto_tag`
 - if the control port cannot bind, the app either uses `control.fallback_bind` or exits with a clear error.
 - the Docker image defaults `STASH_SCANNER_STATE_PATH` to `/config/state.json`, so mount a writable host path to `/config` for persistence.

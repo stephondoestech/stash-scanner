@@ -8,13 +8,35 @@ import (
 	"stash-scanner/internal/stash"
 )
 
-func scoreItem(item stash.MediaItem, itemType ItemType, performers []stash.Performer) QueueItem {
-	text := buildSearchText(item)
+type matchConfig struct {
+	MinCandidateScore int
+	MinCandidateLead  int
+}
+
+type scoreInput struct {
+	title       string
+	path        string
+	details     string
+	studio      string
+	tags        []string
+	titleTokens []string
+	pathTokens  []string
+}
+
+func defaultMatchConfig() matchConfig {
+	return matchConfig{
+		MinCandidateScore: 8,
+		MinCandidateLead:  3,
+	}
+}
+
+func scoreItem(item stash.MediaItem, itemType ItemType, performers []stash.Performer, cfg matchConfig) QueueItem {
+	input := buildScoreInput(item)
 	candidates := make([]Candidate, 0, 5)
 
 	for _, performer := range performers {
-		score, reasons := scorePerformer(text, performer)
-		if score == 0 {
+		score, reasons := scorePerformer(input, performer)
+		if score < cfg.MinCandidateScore {
 			continue
 		}
 		candidates = append(candidates, Candidate{
@@ -39,71 +61,139 @@ func scoreItem(item stash.MediaItem, itemType ItemType, performers []stash.Perfo
 
 	status := "no_candidate"
 	bestScore := 0
-	if len(candidates) > 0 {
+	suppressionReason := ""
+	if len(candidates) > 0 && !ambiguousTopCandidate(candidates, cfg) {
 		status = "needs_review"
 		bestScore = candidates[0].Score
+	} else {
+		if len(candidates) > 0 {
+			suppressionReason = "ambiguous_match"
+		} else {
+			suppressionReason = "weak_signal"
+		}
+		candidates = nil
 	}
 
 	return QueueItem{
-		ID:           item.ID,
-		Type:         itemType,
-		Title:        item.Title,
-		Details:      item.Details,
-		Path:         item.Path,
-		Tags:         append([]string{}, item.Tags...),
-		Studio:       item.Studio,
-		Status:       status,
-		BestScore:    bestScore,
-		CandidateCnt: len(candidates),
-		Candidates:   candidates,
+		ID:                item.ID,
+		Type:              itemType,
+		Title:             item.Title,
+		Details:           item.Details,
+		Path:              item.Path,
+		Tags:              append([]string{}, item.Tags...),
+		Studio:            item.Studio,
+		Status:            status,
+		SuppressionReason: suppressionReason,
+		BestScore:         bestScore,
+		CandidateCnt:      len(candidates),
+		Candidates:        candidates,
 	}
 }
 
-func buildSearchText(item stash.MediaItem) string {
-	parts := []string{item.Title, item.Path, item.Details, item.Studio}
-	parts = append(parts, item.Tags...)
-	return strings.ToLower(strings.Join(parts, " "))
+func buildScoreInput(item stash.MediaItem) scoreInput {
+	title := normalizeMatchText(item.Title)
+	path := normalizeMatchText(item.Path)
+	return scoreInput{
+		title:       title,
+		path:        path,
+		details:     normalizeMatchText(item.Details),
+		studio:      normalizeMatchText(item.Studio),
+		tags:        normalizeMatchTextSlice(item.Tags),
+		titleTokens: tokenize(title),
+		pathTokens:  tokenize(path),
+	}
 }
 
-func scorePerformer(text string, performer stash.Performer) (int, []string) {
+func scorePerformer(input scoreInput, performer stash.Performer) (int, []string) {
 	score := 0
 	reasons := []string{}
 
-	if name := strings.ToLower(strings.TrimSpace(performer.Name)); name != "" && strings.Contains(text, name) {
-		score += 10
-		reasons = append(reasons, "name match")
+	if phrase := normalizeMatchText(performer.Name); phrase != "" {
+		score, reasons = addPhraseScore(score, reasons, phrase, "name", input, 10, 9, 4, 2, 2)
 	}
 
 	for _, alias := range performer.Aliases {
-		alias = strings.ToLower(strings.TrimSpace(alias))
-		if alias == "" || !strings.Contains(text, alias) {
+		phrase := normalizeMatchText(alias)
+		if phrase == "" {
 			continue
 		}
-		score += 6
-		reasons = append(reasons, "alias match")
+		score, reasons = addPhraseScore(score, reasons, phrase, "alias", input, 8, 7, 3, 2, 2)
 	}
 
 	tokens := tokenize(performer.Name)
 	for _, alias := range performer.Aliases {
 		tokens = append(tokens, tokenize(alias)...)
 	}
-
-	seen := map[string]struct{}{}
-	for _, token := range tokens {
-		if len(token) < 3 || strings.Contains(text, token) == false {
-			continue
-		}
-		if _, ok := seen[token]; ok {
-			continue
-		}
-		seen[token] = struct{}{}
-		score++
-	}
-	if len(seen) > 0 {
-		reasons = append(reasons, "token overlap")
+	tokenMatches := overlapCount(tokens, append(input.titleTokens, input.pathTokens...))
+	if tokenMatches >= 2 {
+		score += tokenMatches * 2
+		reasons = append(reasons, "title/path token overlap")
 	}
 
 	return score, uniqueStrings(reasons)
+}
+
+func addPhraseScore(score int, reasons []string, phrase, label string, input scoreInput, titleWeight, pathWeight, detailWeight, studioWeight, tagWeight int) (int, []string) {
+	if containsPhrase(input.title, phrase) {
+		score += weightedPhraseScore(phrase, titleWeight)
+		reasons = append(reasons, "title "+label+" match")
+	}
+	if containsPhrase(input.path, phrase) {
+		score += weightedPhraseScore(phrase, pathWeight)
+		reasons = append(reasons, "path "+label+" match")
+	}
+	if containsPhrase(input.details, phrase) {
+		score += weightedPhraseScore(phrase, detailWeight)
+		reasons = append(reasons, "details "+label+" match")
+	}
+	if containsPhrase(input.studio, phrase) {
+		score += weightedPhraseScore(phrase, studioWeight)
+		reasons = append(reasons, "studio "+label+" match")
+	}
+	for _, tag := range input.tags {
+		if containsPhrase(tag, phrase) {
+			score += weightedPhraseScore(phrase, tagWeight)
+			reasons = append(reasons, "tag "+label+" match")
+			break
+		}
+	}
+	return score, reasons
+}
+
+func weightedPhraseScore(phrase string, weight int) int {
+	if len(tokenize(phrase)) <= 1 {
+		return maxInt(1, weight/2)
+	}
+	return weight
+}
+
+func containsPhrase(field, phrase string) bool {
+	if field == "" || phrase == "" {
+		return false
+	}
+	return strings.Contains(" "+field+" ", " "+phrase+" ")
+}
+
+func normalizeMatchText(value string) string {
+	return strings.Join(tokenize(value), " ")
+}
+
+func normalizeMatchTextSlice(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := normalizeMatchText(value)
+		if normalized != "" {
+			out = append(out, normalized)
+		}
+	}
+	return out
+}
+
+func ambiguousTopCandidate(candidates []Candidate, cfg matchConfig) bool {
+	if len(candidates) < 2 {
+		return false
+	}
+	return candidates[0].Score-candidates[1].Score < cfg.MinCandidateLead
 }
 
 func tokenize(value string) []string {
@@ -127,4 +217,11 @@ func uniqueStrings(values []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }

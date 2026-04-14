@@ -33,6 +33,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("build reviewer service: %v", err)
 	}
+	service.SetMatchConfig(review.MatchConfigFromConfig(cfg))
 
 	server := review.NewServer(cfg.Bind, service, logger)
 	go func() {
