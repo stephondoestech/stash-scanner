@@ -18,7 +18,7 @@ type stashClient interface {
 	GalleryItems(context.Context) ([]stash.MediaItem, error)
 	Performers(context.Context) ([]stash.Performer, error)
 	FetchImage(context.Context, string) (stash.ImageResult, error)
-	AutoAssignGalleryPerformersFromScenePaths(context.Context) (int, error)
+	AutoAssignGalleryPerformersFromScenePaths(context.Context) ([]stash.AutoAssignedGallery, error)
 	AssignScenePerformers(context.Context, string, []string) error
 	AssignGalleryPerformers(context.Context, string, []string) error
 	RepairPerformer(context.Context, string) error
@@ -89,23 +89,33 @@ func (s *Service) Status() Status {
 	defer s.mu.RUnlock()
 
 	return Status{
-		Now:             s.now(),
-		Running:         s.running,
-		RefreshedAt:     s.snapshot.RefreshedAt,
-		ItemCount:       s.snapshot.ItemCount,
-		ActiveCount:     s.snapshot.ActiveCount,
-		SkippedCount:    s.snapshot.SkippedCount,
-		ResolvedCount:   s.snapshot.ResolvedCount,
-		ReviewCount:     s.snapshot.ReviewCount,
-		RepairCount:     s.snapshot.RepairCount,
-		SuppressedCount: s.snapshot.SuppressedCount,
-		EmptyCount:      s.snapshot.EmptyCount,
-		MatchMinScore:   s.match.MinCandidateScore,
-		MatchMinLead:    s.match.MinCandidateLead,
-		AuditTrail:      append([]AuditEntry{}, s.snapshot.AuditTrail...),
-		LastError:       s.snapshot.LastError,
-		Items:           append([]QueueItem{}, s.snapshot.Items...),
+		Now:               s.now(),
+		Running:           s.running,
+		RefreshedAt:       s.snapshot.RefreshedAt,
+		ItemCount:         s.snapshot.ItemCount,
+		ActiveCount:       s.snapshot.ActiveCount,
+		SkippedCount:      s.snapshot.SkippedCount,
+		ResolvedCount:     s.snapshot.ResolvedCount,
+		ReviewCount:       s.snapshot.ReviewCount,
+		RepairCount:       s.snapshot.RepairCount,
+		AutoAssignedCount: s.snapshot.AutoAssignedCount,
+		SuppressedCount:   s.snapshot.SuppressedCount,
+		EmptyCount:        s.snapshot.EmptyCount,
+		VisibleCount:      len(s.snapshot.Items),
+		MatchMinScore:     s.match.MinCandidateScore,
+		MatchMinLead:      s.match.MinCandidateLead,
+		AuditTrail:        append([]AuditEntry{}, s.snapshot.AuditTrail...),
+		LastError:         s.snapshot.LastError,
+		Items:             append([]QueueItem{}, s.snapshot.Items...),
 	}
+}
+
+func (s *Service) StatusFiltered(query string) Status {
+	status := s.Status()
+	status.FilterQuery = strings.TrimSpace(query)
+	status.Items = filterQueueItems(status.Items, query)
+	status.VisibleCount = len(status.Items)
+	return status
 }
 
 func (s *Service) Refresh(ctx context.Context) error {
@@ -159,7 +169,11 @@ func (s *Service) Refresh(ctx context.Context) error {
 			items = append(items, queueItem)
 		}
 	}
+	items = append(items, buildAutoAssignedItems(autoAssigned)...)
+	items = append(items, carryForwardAutoAssigned(previousItems, galleries)...)
+	items = uniqueQueueItems(items)
 	mergeReviewState(items, previousItems)
+	applyDefaultResolvedAt(items, s.now())
 
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].ReviewState != items[j].ReviewState {
@@ -197,6 +211,10 @@ func (s *Service) Refresh(ctx context.Context) error {
 			snapshot.RepairCount++
 			continue
 		}
+		if item.Status == "auto_assigned" {
+			snapshot.AutoAssignedCount++
+			continue
+		}
 		if item.Status == "suppressed" {
 			snapshot.SuppressedCount++
 			continue
@@ -220,7 +238,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 	s.snapshot = snapshot
 	s.mu.Unlock()
 
-	logging.Event(s.logger, "review_refresh_finished", "items", snapshot.ItemCount, "needs_review", snapshot.ReviewCount, "repair_needed", snapshot.RepairCount, "suppressed", snapshot.SuppressedCount, "no_candidate", snapshot.EmptyCount, "auto_assigned_galleries", autoAssigned)
+	logging.Event(s.logger, "review_refresh_finished", "items", snapshot.ItemCount, "needs_review", snapshot.ReviewCount, "repair_needed", snapshot.RepairCount, "auto_assigned", snapshot.AutoAssignedCount, "suppressed", snapshot.SuppressedCount, "no_candidate", snapshot.EmptyCount, "auto_assigned_galleries", len(autoAssigned))
 	return nil
 }
 
@@ -345,7 +363,7 @@ func (s *Service) SetReviewStateBulk(itemIDs []string, state ReviewState) error 
 		s.snapshot.Items[i].ReviewState = state
 		s.snapshot.Items[i].ReviewedAt = now
 		s.snapshot.Items[i].ResolvedAt = time.Time{}
-		if state == ReviewPending {
+		if state == ReviewPending && !s.snapshot.Items[i].AutoAssigned {
 			s.snapshot.Items[i].AssignedPerformerIDs = nil
 		}
 		found++
@@ -362,14 +380,18 @@ func (s *Service) SetReviewStateBulk(itemIDs []string, state ReviewState) error 
 }
 
 func (s *Service) AssignCandidate(ctx context.Context, itemID, performerID string) error {
-	return s.AssignCandidateBulk(ctx, []string{itemID}, performerID)
+	return s.AssignPerformers(ctx, []string{itemID}, []string{performerID})
 }
 
 func (s *Service) AssignCandidateBulk(ctx context.Context, itemIDs []string, performerID string) error {
+	return s.AssignPerformers(ctx, itemIDs, []string{performerID})
+}
+
+func (s *Service) AssignPerformers(ctx context.Context, itemIDs, performerIDs []string) error {
 	itemIDs = uniqueItemIDs(itemIDs)
-	performerID = strings.TrimSpace(performerID)
-	if len(itemIDs) == 0 || performerID == "" {
-		return fmt.Errorf("item ids and performer id are required")
+	performerIDs = uniqueItemIDs(performerIDs)
+	if len(itemIDs) == 0 || len(performerIDs) == 0 {
+		return fmt.Errorf("item ids and performer ids are required")
 	}
 
 	s.mu.RLock()
@@ -391,11 +413,11 @@ func (s *Service) AssignCandidateBulk(ctx context.Context, itemIDs []string, per
 	for _, item := range items {
 		switch item.Type {
 		case SceneItem:
-			if err := s.client.AssignScenePerformers(ctx, item.ID, []string{performerID}); err != nil {
+			if err := s.client.AssignScenePerformers(ctx, item.ID, performerIDs); err != nil {
 				return err
 			}
 		case GalleryItem:
-			if err := s.client.AssignGalleryPerformers(ctx, item.ID, []string{performerID}); err != nil {
+			if err := s.client.AssignGalleryPerformers(ctx, item.ID, performerIDs); err != nil {
 				return err
 			}
 		default:
@@ -415,14 +437,19 @@ func (s *Service) AssignCandidateBulk(ctx context.Context, itemIDs []string, per
 		s.snapshot.Items[i].ReviewState = ReviewResolved
 		s.snapshot.Items[i].ReviewedAt = now
 		s.snapshot.Items[i].ResolvedAt = now
-		s.snapshot.Items[i].AssignedPerformerIDs = []string{performerID}
+		s.snapshot.Items[i].AssignedPerformerIDs = append([]string{}, performerIDs...)
+		s.snapshot.Items[i].AutoAssigned = false
+		s.snapshot.Items[i].AutoAssignReason = ""
+		if s.snapshot.Items[i].Status == "auto_assigned" {
+			s.snapshot.Items[i].Status = "needs_review"
+		}
 		updated++
 	}
 	if updated == 0 {
 		return fmt.Errorf("no matching items found")
 	}
 	recountSnapshot(&s.snapshot)
-	s.appendAuditLocked("assigned", fmt.Sprintf("assigned performer %s", performerID), itemIDs)
+	s.appendAuditLocked("assigned", fmt.Sprintf("assigned performers %s", strings.Join(performerIDs, ",")), itemIDs)
 	if err := s.store.Save(s.snapshot); err != nil {
 		return err
 	}
@@ -458,6 +485,7 @@ func recountSnapshot(snapshot *Snapshot) {
 	snapshot.ResolvedCount = 0
 	snapshot.ReviewCount = 0
 	snapshot.RepairCount = 0
+	snapshot.AutoAssignedCount = 0
 	snapshot.SuppressedCount = 0
 	snapshot.EmptyCount = 0
 	for _, item := range snapshot.Items {
@@ -472,6 +500,8 @@ func recountSnapshot(snapshot *Snapshot) {
 			snapshot.ReviewCount++
 		} else if item.Status == "repair_needed" {
 			snapshot.RepairCount++
+		} else if item.Status == "auto_assigned" {
+			snapshot.AutoAssignedCount++
 		} else if item.Status == "suppressed" {
 			snapshot.SuppressedCount++
 		} else {

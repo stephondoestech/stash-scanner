@@ -16,7 +16,7 @@ type fakeStashClient struct {
 	galleries      []stash.MediaItem
 	performers     []stash.Performer
 	image          stash.ImageResult
-	autoAssigned   int
+	autoAssigned   []stash.AutoAssignedGallery
 	sceneAssigns   map[string][]string
 	galleryAssigns map[string][]string
 	repaired       []string
@@ -38,7 +38,7 @@ func (f *fakeStashClient) FetchImage(context.Context, string) (stash.ImageResult
 	return f.image, nil
 }
 
-func (f *fakeStashClient) AutoAssignGalleryPerformersFromScenePaths(context.Context) (int, error) {
+func (f *fakeStashClient) AutoAssignGalleryPerformersFromScenePaths(context.Context) ([]stash.AutoAssignedGallery, error) {
 	return f.autoAssigned, nil
 }
 
@@ -181,6 +181,103 @@ func TestRefreshIncludesItemsWithIncompleteLinkedPerformers(t *testing.T) {
 	}
 	if len(status.Items[0].LinkedPerformers) != 1 {
 		t.Fatalf("expected linked incomplete performer, got %#v", status.Items[0].LinkedPerformers)
+	}
+}
+
+func TestRefreshIncludesAutoAssignedGalleries(t *testing.T) {
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		&fakeStashClient{
+			galleries: []stash.MediaItem{{
+				ID:           "gallery-1",
+				Title:        "Shared gallery",
+				Path:         "/media/shared",
+				PerformerIDs: []string{"perf-1", "perf-2"},
+			}},
+			performers: []stash.Performer{
+				{ID: "perf-1", Name: "Jane Doe"},
+				{ID: "perf-2", Name: "Alex Roe"},
+			},
+			autoAssigned: []stash.AutoAssignedGallery{{
+				ID:           "gallery-1",
+				Title:        "Shared gallery",
+				Path:         "/media/shared",
+				PerformerIDs: []string{"perf-1", "perf-2"},
+				Reason:       "exact scene path match for /media/shared",
+			}},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	status := service.Status()
+	if got, want := status.AutoAssignedCount, 1; got != want {
+		t.Fatalf("auto-assigned count mismatch: got %d want %d", got, want)
+	}
+	if got, want := status.Items[0].Status, "auto_assigned"; got != want {
+		t.Fatalf("item status mismatch: got %q want %q", got, want)
+	}
+	if !status.Items[0].AutoAssigned {
+		t.Fatal("expected auto-assigned gallery flag")
+	}
+	if got, want := strings.Join(status.Items[0].AssignedPerformerIDs, ","), "perf-1,perf-2"; got != want {
+		t.Fatalf("assigned performer ids mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestRefreshCarriesForwardAutoAssignedGalleries(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "queue.json"))
+	initial := Snapshot{
+		Items: []QueueItem{{
+			ID:                   "gallery-1",
+			Type:                 GalleryItem,
+			Title:                "Shared gallery",
+			Path:                 "/media/shared",
+			Status:               "auto_assigned",
+			AutoAssigned:         true,
+			AutoAssignReason:     "exact scene path match for /media/shared",
+			ReviewState:          ReviewResolved,
+			AssignedPerformerIDs: []string{"perf-1", "perf-2"},
+		}},
+	}
+	if err := store.Save(initial); err != nil {
+		t.Fatalf("save initial snapshot: %v", err)
+	}
+
+	service, err := NewService(
+		store,
+		&fakeStashClient{
+			galleries: []stash.MediaItem{{
+				ID:           "gallery-1",
+				Title:        "Shared gallery",
+				Path:         "/media/shared",
+				PerformerIDs: []string{"perf-1", "perf-2"},
+			}},
+			performers: []stash.Performer{
+				{ID: "perf-1", Name: "Jane Doe"},
+				{ID: "perf-2", Name: "Alex Roe"},
+			},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	status := service.Status()
+	if got, want := status.ItemCount, 1; got != want {
+		t.Fatalf("item count mismatch: got %d want %d", got, want)
+	}
+	if got, want := status.Items[0].Status, "auto_assigned"; got != want {
+		t.Fatalf("item status mismatch: got %q want %q", got, want)
 	}
 }
 
@@ -552,5 +649,40 @@ func TestAssignCandidateBulkMarksMixedItemsResolved(t *testing.T) {
 	}
 	if got, want := strings.Join(client.galleryAssigns["gallery-1"], ","), "perf-1"; got != want {
 		t.Fatalf("gallery assignment mismatch: got %q want %q", got, want)
+	}
+}
+
+func TestAssignPerformersSupportsMultiplePerformerIDs(t *testing.T) {
+	client := &fakeStashClient{
+		galleries: []stash.MediaItem{
+			{ID: "gallery-1", Title: "Shared gallery", Path: "/media/gallery-1"},
+		},
+		performers: []stash.Performer{
+			{ID: "perf-1", Name: "Jane Doe"},
+			{ID: "perf-2", Name: "Alex Roe"},
+		},
+	}
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		client,
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	if err := service.AssignPerformers(context.Background(), []string{"gallery-1"}, []string{"perf-1", "perf-2"}); err != nil {
+		t.Fatalf("AssignPerformers: %v", err)
+	}
+
+	status := service.Status()
+	if got, want := strings.Join(client.galleryAssigns["gallery-1"], ","), "perf-1,perf-2"; got != want {
+		t.Fatalf("gallery assignment mismatch: got %q want %q", got, want)
+	}
+	if got, want := strings.Join(status.Items[0].AssignedPerformerIDs, ","), "perf-1,perf-2"; got != want {
+		t.Fatalf("assigned performer ids mismatch: got %q want %q", got, want)
 	}
 }

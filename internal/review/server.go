@@ -65,7 +65,7 @@ func RegisterRoutes(mux *http.ServeMux, prefix string, service *Service) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		writeJSON(w, http.StatusOK, service.Status())
+		writeJSON(w, http.StatusOK, service.StatusFiltered(r.URL.Query().Get("q")))
 	})
 	mux.HandleFunc(base+"api/settings", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -171,6 +171,25 @@ func RegisterRoutes(mux *http.ServeMux, prefix string, service *Service) {
 			return
 		}
 		if err := service.AssignCandidateBulk(r.Context(), payload.ItemIDs, strings.TrimSpace(payload.PerformerID)); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "assigned"})
+	})
+	mux.HandleFunc(base+"api/items/assign-multi", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			ItemIDs      []string `json:"item_ids"`
+			PerformerIDs []string `json:"performer_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		if err := service.AssignPerformers(r.Context(), payload.ItemIDs, payload.PerformerIDs); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

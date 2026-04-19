@@ -3,6 +3,8 @@ const els = {
   mode: document.getElementById("mode"),
   lastRun: document.getElementById("last-run"),
   lastRunDetail: document.getElementById("last-run-detail"),
+  nextStepTitle: document.getElementById("next-step-title"),
+  nextStepDetail: document.getElementById("next-step-detail"),
   pendingCount: document.getElementById("pending-count"),
   pendingDetail: document.getElementById("pending-detail"),
   lastOutcome: document.getElementById("last-outcome"),
@@ -38,6 +40,8 @@ const els = {
   statusText: document.getElementById("status-text"),
   statusBadge: document.getElementById("status-badge"),
   pollState: document.getElementById("poll-state"),
+  actionFlash: document.getElementById("action-flash"),
+  backlogQuery: document.getElementById("backlog-query"),
   runNow: document.getElementById("run-now"),
   flushDebounce: document.getElementById("flush-debounce"),
   stopRun: document.getElementById("stop-run"),
@@ -47,6 +51,7 @@ let lastLoadedAt = null;
 let lastStatus = null;
 let refreshTimer = null;
 let pollTimer = null;
+let flashTimer = null;
 
 function fmt(value) {
   if (!value) return "-";
@@ -65,6 +70,20 @@ function fmtRelative(date) {
   return `${hours}h ago`;
 }
 
+function setFlash(message, kind = "ok") {
+  clearTimeout(flashTimer);
+  els.actionFlash.className = `flash ${kind}`;
+  els.actionFlash.textContent = message;
+  flashTimer = setTimeout(() => {
+    els.actionFlash.className = "flash";
+    els.actionFlash.textContent = "";
+  }, 4500);
+}
+
+function backlogQuery() {
+  return (els.backlogQuery.value || "").trim().toLowerCase();
+}
+
 function render(status) {
   const running = status.running;
   const last = status.last_run || {};
@@ -76,11 +95,14 @@ function render(status) {
   const retryPaths = pending.paths || [];
   const watchRoots = status.watch_roots || [];
   const pendingTotal = retryPaths.length + debouncePaths.length;
+  const nextStep = deriveNextStep(status, pendingTotal);
 
   els.version.textContent = status.version || "dev";
   els.mode.textContent = status.dry_run ? "Dry Run Mode" : "Live Mode";
   els.lastRun.textContent = fmt(status.last_run_at);
   els.lastRunDetail.textContent = last.finished_at ? `Finished ${fmt(last.finished_at)}` : "No completed runs yet";
+  els.nextStepTitle.textContent = nextStep.title;
+  els.nextStepDetail.textContent = nextStep.detail;
   els.pendingCount.textContent = String(pendingTotal);
   els.pendingDetail.textContent = pendingTotal ? `${debouncePaths.length} debounced, ${retryPaths.length} retrying` : "No queued work";
   els.lastOutcome.textContent = last.stopped ? "Stopped" : (last.scan_succeeded ? "Success" : (last.last_error ? "Failed" : "Idle"));
@@ -92,9 +114,9 @@ function render(status) {
   els.currentUpdated.textContent = fmt(current.updated_at);
   els.currentIdentifySources.textContent = (current.identify_sources || []).join(", ") || (last.identify_sources || []).join(", ") || "-";
   renderTask(task);
-  renderPathList(els.pendingDebounce, debouncePaths, els.pendingDebounceEmpty);
-  renderPathList(els.pendingRetry, retryPaths, els.pendingRetryEmpty);
-  renderPathList(els.watchRoots, watchRoots, els.watchRootsEmpty);
+  renderPathList(els.pendingDebounce, debouncePaths, els.pendingDebounceEmpty, "No debounced paths match the current filter.");
+  renderPathList(els.pendingRetry, retryPaths, els.pendingRetryEmpty, "No retry paths match the current filter.");
+  renderPathList(els.watchRoots, watchRoots, els.watchRootsEmpty, "No watch roots match the current filter.");
   renderSummary(last);
   els.pendingDebounceCount.textContent = String(debouncePaths.length);
   els.pendingDebounceMeta.textContent = debouncePaths.length ? `Ready ${fmt(debounce.ready_at)}` : "Nothing waiting to mature";
@@ -148,12 +170,15 @@ function renderSummary(last) {
   renderSimpleList(els.lastSummary, items, els.lastSummaryEmpty);
 }
 
-function renderPathList(el, items, emptyEl) {
+function renderPathList(el, items, emptyEl, filteredEmptyText) {
+  const query = backlogQuery();
+  const filtered = query ? items.filter((item) => item.toLowerCase().includes(query)) : items;
   const max = 8;
-  const lines = items.slice(0, max);
-  if (items.length > max) {
-    lines.push(`+ ${items.length - max} more`);
+  const lines = filtered.slice(0, max);
+  if (filtered.length > max) {
+    lines.push(`+ ${filtered.length - max} more`);
   }
+  emptyEl.textContent = query ? filteredEmptyText : (emptyEl.dataset.defaultText || emptyEl.textContent);
   renderSimpleList(el, lines, emptyEl);
 }
 
@@ -185,6 +210,46 @@ function humanPhase(phase) {
     case "idle": return "Idle";
     default: return "Working";
   }
+}
+
+function deriveNextStep(status, pendingTotal) {
+  const last = status.last_run || {};
+  const pending = status.pending_scan || {};
+  const debounce = status.pending_debounce || {};
+  if (status.running) {
+    return {
+      title: "Let The Current Run Finish",
+      detail: status.current_run?.detail || "The scanner is already working. Use Stop only if the current run is stuck or should be cancelled.",
+    };
+  }
+  if (last.last_error && (pending.paths || []).length) {
+    return {
+      title: "Watch The Retry Queue",
+      detail: `The last run failed and ${pending.paths.length} path${pending.paths.length === 1 ? " is" : "s are"} queued for retry${pending.next_attempt_at ? ` at ${fmt(pending.next_attempt_at)}` : ""}.`,
+    };
+  }
+  if ((debounce.paths || []).length) {
+    return {
+      title: "Scan Pending Changes",
+      detail: `There ${debounce.paths.length === 1 ? "is" : "are"} ${debounce.paths.length} debounced path${debounce.paths.length === 1 ? "" : "s"} ready or nearly ready. Use Scan Pending Now to promote them immediately.`,
+    };
+  }
+  if (!status.last_run_at || status.last_run_at === "0001-01-01T00:00:00Z") {
+    return {
+      title: "Run The First Scan",
+      detail: "No scanner run has completed yet. Start with Run Now after confirming Stash is up and the watch roots match your library paths.",
+    };
+  }
+  if (pendingTotal === 0) {
+    return {
+      title: "System Is Clear",
+      detail: "There is no pending debounce or retry work. The scanner is waiting for filesystem changes or the next scheduled run.",
+    };
+  }
+  return {
+    title: "Review Backlog",
+    detail: "Inspect the debounce and retry panels to decide whether to wait for automatic handling or intervene manually.",
+  };
 }
 
 function formatCurrentRun(current) {
@@ -260,29 +325,53 @@ function scheduleRefresh(delay = refreshIntervalMs()) {
 
 els.runNow.addEventListener("click", async () => {
   els.runNow.disabled = true;
-  const res = await fetch("/api/run-now", { method: "POST" });
-  if (!res.ok && res.status !== 409) {
-    throw new Error(await res.text());
+  try {
+    const res = await fetch("/api/run-now", { method: "POST" });
+    if (!res.ok && res.status !== 409) {
+      throw new Error(await res.text());
+    }
+    const payload = await res.json();
+    setFlash(payload.status === "running" ? "A scanner run is already in progress." : "Scanner run started.", payload.status === "running" ? "warn" : "ok");
+    await loadStatus();
+  } catch (err) {
+    setFlash(String(err), "error");
+  } finally {
+    if (lastStatus) render(lastStatus);
   }
-  await loadStatus();
 });
 
 els.flushDebounce.addEventListener("click", async () => {
   els.flushDebounce.disabled = true;
-  const res = await fetch("/api/flush-debounce", { method: "POST" });
-  if (!res.ok && res.status !== 409) {
-    throw new Error(await res.text());
+  try {
+    const res = await fetch("/api/flush-debounce", { method: "POST" });
+    if (!res.ok && res.status !== 409) {
+      throw new Error(await res.text());
+    }
+    const payload = await res.json();
+    setFlash(payload.status === "idle" ? "There were no pending debounce paths to promote." : "Pending debounce paths promoted for scanning.", payload.status === "idle" ? "warn" : "ok");
+    await loadStatus();
+  } catch (err) {
+    setFlash(String(err), "error");
+  } finally {
+    if (lastStatus) render(lastStatus);
   }
-  await loadStatus();
 });
 
 els.stopRun.addEventListener("click", async () => {
   els.stopRun.disabled = true;
-  const res = await fetch("/api/stop", { method: "POST" });
-  if (!res.ok && res.status !== 409) {
-    throw new Error(await res.text());
+  try {
+    const res = await fetch("/api/stop", { method: "POST" });
+    if (!res.ok && res.status !== 409) {
+      throw new Error(await res.text());
+    }
+    const payload = await res.json();
+    setFlash(payload.status === "idle" ? "There is no active run to stop." : "Stop requested for the active scanner run.", payload.status === "idle" ? "warn" : "ok");
+    await loadStatus();
+  } catch (err) {
+    setFlash(String(err), "error");
+  } finally {
+    if (lastStatus) render(lastStatus);
   }
-  await loadStatus();
 });
 
 function updatePollState() {
@@ -295,6 +384,9 @@ function updatePollState() {
 
 async function boot() {
   try {
+    for (const emptyEl of [els.pendingDebounceEmpty, els.pendingRetryEmpty, els.watchRootsEmpty]) {
+      emptyEl.dataset.defaultText = emptyEl.textContent;
+    }
     await loadStatus();
     scheduleRefresh();
     pollTimer = setInterval(updatePollState, 1000);
@@ -315,6 +407,12 @@ document.addEventListener("visibilitychange", async () => {
     handleLoadError(err);
   }
   scheduleRefresh();
+});
+
+els.backlogQuery.addEventListener("input", () => {
+  if (lastStatus) {
+    render(lastStatus);
+  }
 });
 
 boot();

@@ -27,6 +27,17 @@ type Performer struct {
 	StashIDs []StashID
 }
 
+type AutoAssignedGallery struct {
+	ID           string
+	Title        string
+	Details      string
+	Path         string
+	Tags         []string
+	Studio       string
+	PerformerIDs []string
+	Reason       string
+}
+
 type StashID struct {
 	Endpoint string
 	StashID  string
@@ -148,14 +159,14 @@ func (c *Client) MissingPerformerGalleries(ctx context.Context) ([]MediaItem, er
 	return filterMissingPerformerItems(items), nil
 }
 
-func (c *Client) AutoAssignGalleryPerformersFromScenePaths(ctx context.Context) (int, error) {
+func (c *Client) AutoAssignGalleryPerformersFromScenePaths(ctx context.Context) ([]AutoAssignedGallery, error) {
 	scenes, err := c.allSceneItems(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	galleries, err := c.allGalleryItems(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	byPath := make(map[string][]string)
@@ -178,7 +189,7 @@ func (c *Client) AutoAssignGalleryPerformersFromScenePaths(ctx context.Context) 
 		byPath[path] = ids
 	}
 
-	assigned := 0
+	assigned := make([]AutoAssignedGallery, 0)
 	for _, gallery := range galleries {
 		if len(gallery.Performers) > 0 {
 			continue
@@ -197,7 +208,16 @@ func (c *Client) AutoAssignGalleryPerformersFromScenePaths(ctx context.Context) 
 		if err := c.AssignGalleryPerformers(ctx, strings.TrimSpace(gallery.ID), ids); err != nil {
 			return assigned, err
 		}
-		assigned++
+		assigned = append(assigned, AutoAssignedGallery{
+			ID:           strings.TrimSpace(gallery.ID),
+			Title:        strings.TrimSpace(gallery.Title),
+			Details:      strings.TrimSpace(gallery.Details),
+			Path:         strings.TrimSpace(galleryPath(gallery.Path, gallery.Folder, gallery.Files)),
+			Tags:         tagNames(gallery.Tags),
+			Studio:       studioName(gallery.Studio),
+			PerformerIDs: append([]string{}, ids...),
+			Reason:       fmt.Sprintf("exact scene path match for %s", path),
+		})
 	}
 	return assigned, nil
 }

@@ -214,8 +214,8 @@ func (f *fakeReviewClient) FetchImage(context.Context, string) (stash.ImageResul
 	return stash.ImageResult{}, nil
 }
 
-func (f *fakeReviewClient) AutoAssignGalleryPerformersFromScenePaths(context.Context) (int, error) {
-	return 0, nil
+func (f *fakeReviewClient) AutoAssignGalleryPerformersFromScenePaths(context.Context) ([]stash.AutoAssignedGallery, error) {
+	return nil, nil
 }
 
 func (f *fakeReviewClient) AssignScenePerformers(context.Context, string, []string) error {

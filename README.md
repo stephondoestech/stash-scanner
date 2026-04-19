@@ -84,6 +84,12 @@ The reviewer can now handle two manual workflows:
 - assign performers to scenes or galleries that are missing them
 - repair linked performers that already exist in Stash but are incomplete
 
+Reviewer workflow notes:
+
+- queue search can filter by title, path, studio, tag, status, and performer name
+- auto-assigned galleries stay visible in the queue with their path-match reason so they can be reopened and corrected
+- the detail panel supports building a multi-performer assignment set before writing back to Stash
+
 Incomplete performers are currently defined as performers missing `name`, `gender`, and `image`.
 
 ## First Run Warning
@@ -157,6 +163,7 @@ Reviewer runtime:
 - `STASH_REVIEWER_MIN_LEAD` - minimum score lead the top candidate must have over the runner-up to avoid suppression as ambiguous
 - the reviewer UI can also adjust the active thresholds at runtime; the change applies immediately by refreshing the queue with the new settings
 - reviewer repair attempts are manual only; the UI exposes a repair button for incomplete linked performers or incomplete manual-search results when a stash-id-backed repair is possible
+- reviewer auto-assigned galleries are counted separately in status and remain reviewable after refresh instead of disappearing into logs
 
 ## Commands
 
@@ -199,6 +206,7 @@ API:
 - scheduled mode waits for the first configured interval or daily time; it does not auto-run a scan immediately on service startup
 - the control UI can promote pending debounce paths for immediate processing with `Scan Pending Now`
 - the scanner control UI now shows the resolved identify sources used for `identify` post-scan tasks
+- reviewer auto-assign inheritance is still limited to exact normalized scene-path matches; correction is handled by reopening the queued gallery item and manually assigning the intended performer set
 
 ## Project Notes
 

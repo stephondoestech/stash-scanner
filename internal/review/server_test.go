@@ -43,6 +43,58 @@ func TestStatusHandlerReturnsQueue(t *testing.T) {
 	if payload.MatchMinScore == 0 || payload.MatchMinLead < 0 {
 		t.Fatalf("expected active match config in status, got %+v", payload)
 	}
+	if got, want := payload.VisibleCount, 0; got != want {
+		t.Fatalf("visible count mismatch: got %d want %d", got, want)
+	}
+}
+
+func TestStatusHandlerFiltersQueueByQuery(t *testing.T) {
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		&fakeStashClient{
+			scenes: []stash.MediaItem{
+				{ID: "scene-1", Title: "Jane Doe scene", Path: "/media/jane.mp4", Studio: "North Studio"},
+				{ID: "scene-2", Title: "Unknown scene", Path: "/vault/other.mp4", Studio: "South Studio"},
+			},
+			performers: []stash.Performer{{ID: "perf-1", Name: "Jane Doe"}},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	server := NewServer("127.0.0.1:0", service, log.New(io.Discard, "", 0))
+	req := httptest.NewRequest(http.MethodGet, "/api/status?q=north", nil)
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusOK; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+
+	var payload Status
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got, want := payload.ItemCount, 2; got != want {
+		t.Fatalf("item count mismatch: got %d want %d", got, want)
+	}
+	if got, want := payload.VisibleCount, 1; got != want {
+		t.Fatalf("visible count mismatch: got %d want %d", got, want)
+	}
+	if got, want := payload.FilterQuery, "north"; got != want {
+		t.Fatalf("filter query mismatch: got %q want %q", got, want)
+	}
+	if got, want := len(payload.Items), 1; got != want {
+		t.Fatalf("filtered item count mismatch: got %d want %d", got, want)
+	}
+	if got, want := payload.Items[0].ID, "scene-1"; got != want {
+		t.Fatalf("filtered item mismatch: got %q want %q", got, want)
+	}
 }
 
 func TestRefreshHandlerRunsRefresh(t *testing.T) {
@@ -274,6 +326,41 @@ func TestBulkAssignHandlerMarksMultipleItemsResolved(t *testing.T) {
 	}
 	if got, want := service.Status().ResolvedCount, 2; got != want {
 		t.Fatalf("resolved count mismatch: got %d want %d", got, want)
+	}
+}
+
+func TestMultiAssignHandlerAssignsMultiplePerformers(t *testing.T) {
+	service, err := NewService(
+		NewStore(filepath.Join(t.TempDir(), "queue.json")),
+		&fakeStashClient{
+			galleries: []stash.MediaItem{
+				{ID: "gallery-1", Title: "Jane gallery", Path: "/media/gallery-1"},
+			},
+			performers: []stash.Performer{
+				{ID: "perf-1", Name: "Jane Doe"},
+				{ID: "perf-2", Name: "Alex Roe"},
+			},
+		},
+		log.New(io.Discard, "", 0),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+
+	server := NewServer("127.0.0.1:0", service, log.New(io.Discard, "", 0))
+	req := httptest.NewRequest(http.MethodPost, "/api/items/assign-multi", strings.NewReader(`{"item_ids":["gallery-1"],"performer_ids":["perf-1","perf-2"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.http.Handler.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status code mismatch: got %d want %d", got, want)
+	}
+	if got, want := strings.Join(service.Status().Items[0].AssignedPerformerIDs, ","), "perf-1,perf-2"; got != want {
+		t.Fatalf("assigned performer ids mismatch: got %q want %q", got, want)
 	}
 }
 

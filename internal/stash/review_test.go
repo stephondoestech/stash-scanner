@@ -238,7 +238,7 @@ func TestAutoAssignGalleryPerformersFromScenePathsUsesFolderPathFallback(t *test
 	if err != nil {
 		t.Fatalf("AutoAssignGalleryPerformersFromScenePaths: %v", err)
 	}
-	if got, want := assigned, 1; got != want {
+	if got, want := len(assigned), 1; got != want {
 		t.Fatalf("assigned count mismatch: got %d want %d", got, want)
 	}
 	if got, want := len(mutations), 1; got != want {
@@ -277,11 +277,17 @@ func TestAutoAssignGalleryPerformersFromScenePathsAssignsExactMatch(t *testing.T
 	if err != nil {
 		t.Fatalf("AutoAssignGalleryPerformersFromScenePaths: %v", err)
 	}
-	if got, want := assigned, 1; got != want {
+	if got, want := len(assigned), 1; got != want {
 		t.Fatalf("assigned count mismatch: got %d want %d", got, want)
 	}
 	if got, want := len(mutations), 1; got != want {
 		t.Fatalf("mutation count mismatch: got %d want %d", got, want)
+	}
+	if got, want := strings.Join(assigned[0].PerformerIDs, ","), "p1,p2"; got != want {
+		t.Fatalf("performer id mismatch: got %q want %q", got, want)
+	}
+	if !strings.Contains(assigned[0].Reason, "/media/shared-path") {
+		t.Fatalf("reason mismatch: got %q", assigned[0].Reason)
 	}
 	if !strings.Contains(mutations[0], `performer_ids: ["p1", "p2"]`) {
 		t.Fatalf("expected gallery update performer ids, got %q", mutations[0])

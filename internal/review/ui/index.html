@@ -62,11 +62,21 @@
     .search-box { margin-top:18px; padding:16px; border:1px solid rgba(215,202,183,.85); border-radius:18px; background:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
     .search-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
     .search-row input { flex:1 1 220px; min-width:0; border:1px solid var(--line); border-radius:999px; padding:12px 16px; font:inherit; background:#fffdfa; color:var(--ink); }
+    .queue-search { margin:14px 0 8px; }
+    .flash { display:none; margin:0 0 18px; padding:14px 16px; border:1px solid var(--line); border-radius:18px; background:var(--panel-soft); box-shadow:var(--shadow); color:var(--ink); }
+    .flash.ok { display:block; border-color:rgba(42,107,81,.28); background:rgba(222,239,231,.88); color:var(--ok); }
+    .flash.error { display:block; border-color:rgba(140,59,43,.28); background:rgba(245,221,214,.9); color:var(--accent); }
+    .flash.info { display:block; }
     .empty { color:var(--muted); padding:10px 0; }
     .filters { display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 14px; }
     .filters button { background:#efe5d8; color:var(--ink); }
     .filters button.active { background:var(--accent); color:#fff; }
     .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+    .chip-list { display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; }
+    .chip { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:#fffdfa; font-size:.92rem; }
+    .chip button { padding:6px 10px; font-size:.82rem; box-shadow:none; }
+    .chip button.secondary { background:#efe5d8; }
+    .candidate-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
     #detail { position:sticky; top:18px; }
     @media (max-width: 900px) {
       .hero, .layout { grid-template-columns:1fr; }
@@ -89,6 +99,7 @@
       </div>
       <div class="toolbar hero-actions"><button id="refresh">Refresh Queue</button></div>
     </section>
+    <div id="action-flash" class="flash" aria-live="polite"></div>
     <section class="status">
       <strong>Matcher Settings</strong>
       <div id="settings-status" class="status-meta">Using current reviewer thresholds.</div>
@@ -111,6 +122,7 @@
       <article class="card"><div class="label">Resolved</div><div id="resolved-count" class="value">-</div><div class="sub">Assigned by automation or review</div></article>
       <article class="card"><div class="label">Needs Review</div><div id="review-count" class="value">-</div><div class="sub">Has candidate performers</div></article>
       <article class="card"><div class="label">Repair Needed</div><div id="repair-count" class="value">-</div><div class="sub">Linked performers missing core data</div></article>
+      <article class="card"><div class="label">Auto Assigned</div><div id="auto-assigned-count" class="value">-</div><div class="sub">Inherited from exact scene path matches</div></article>
       <article class="card"><div class="label">Suppressed</div><div id="suppressed-count" class="value">-</div><div class="sub">Filtered by weak or ambiguous matching</div></article>
       <article class="card"><div class="label">No Candidate</div><div id="empty-count" class="value">-</div><div class="sub">No detectable performer signal yet</div></article>
     </section>
@@ -130,6 +142,10 @@
           <button id="filter-skipped" type="button">Skipped</button>
           <button id="filter-resolved" type="button">Resolved</button>
         </div>
+        <div class="search-row queue-search">
+          <input id="queue-search-query" type="text" placeholder="Filter by title, path, studio, tag, or performer">
+        </div>
+        <div id="queue-summary" class="sub">Queue items in current state filter.</div>
         <div id="queue" class="list"></div>
         <div id="queue-empty" class="empty">No review items loaded.</div>
       </article>
@@ -151,6 +167,15 @@
             <button id="reopen-item" type="button" class="secondary">Reopen Item</button>
           </div>
           <div id="assignment-meta" class="sub"></div>
+          <section id="assignment-tray" class="search-box" hidden>
+            <div class="label">Pending Assignment</div>
+            <div class="sub">Build a performer set, then write it back in one update.</div>
+            <div id="assignment-selected" class="chip-list"></div>
+            <div class="actions">
+              <button id="assign-selected-performers" type="button">Assign Selected Performers</button>
+              <button id="clear-assignment-selected" type="button" class="secondary">Clear Pending</button>
+            </div>
+          </section>
           <section id="linked-performers-box" class="search-box" hidden>
             <div class="label">Linked Performers Needing Repair</div>
             <div id="linked-performers" class="candidates"></div>

@@ -8,8 +8,10 @@ const els = {
   resolvedCount: document.getElementById("resolved-count"),
   reviewCount: document.getElementById("review-count"),
   repairCount: document.getElementById("repair-count"),
+  autoAssignedCount: document.getElementById("auto-assigned-count"),
   suppressedCount: document.getElementById("suppressed-count"),
   emptyCount: document.getElementById("empty-count"),
+  actionFlash: document.getElementById("action-flash"),
   settingsMinScore: document.getElementById("settings-min-score"),
   settingsMinLead: document.getElementById("settings-min-lead"),
   settingsSave: document.getElementById("settings-save"),
@@ -33,6 +35,10 @@ const els = {
   detailTags: document.getElementById("detail-tags"),
   detailBody: document.getElementById("detail-body"),
   assignmentMeta: document.getElementById("assignment-meta"),
+  assignmentTray: document.getElementById("assignment-tray"),
+  assignmentSelected: document.getElementById("assignment-selected"),
+  assignSelectedPerformers: document.getElementById("assign-selected-performers"),
+  clearAssignmentSelected: document.getElementById("clear-assignment-selected"),
   linkedPerformersBox: document.getElementById("linked-performers-box"),
   linkedPerformers: document.getElementById("linked-performers"),
   manualSearchQuery: document.getElementById("manual-search-query"),
@@ -45,6 +51,8 @@ const els = {
   filterAll: document.getElementById("filter-all"),
   filterSkipped: document.getElementById("filter-skipped"),
   filterResolved: document.getElementById("filter-resolved"),
+  queueSearchQuery: document.getElementById("queue-search-query"),
+  queueSummary: document.getElementById("queue-summary"),
   skipItem: document.getElementById("skip-item"),
   reopenItem: document.getElementById("reopen-item"),
 };
@@ -54,6 +62,10 @@ let selectedID = "";
 let timer = null;
 let filter = "active";
 let manualSearchItemID = "";
+let queueSearchTimer = null;
+let flashTimer = null;
+let assignmentItemID = "";
+const assignmentSelection = new Map();
 const selectedIDs = new Set();
 
 function describeSuppression(reason) {
@@ -67,6 +79,16 @@ function describeSuppression(reason) {
 function fmt(value) {
   if (!value || value === "0001-01-01T00:00:00Z") return "Never";
   return new Date(value).toLocaleString();
+}
+
+function setFlash(message, kind = "info") {
+  clearTimeout(flashTimer);
+  els.actionFlash.className = `flash ${kind}`;
+  els.actionFlash.textContent = message;
+  flashTimer = setTimeout(() => {
+    els.actionFlash.className = "flash";
+    els.actionFlash.textContent = "";
+  }, 4500);
 }
 
 function pickSelected(items) {
@@ -102,12 +124,31 @@ function visibleItems() {
   return filteredItems(state.items || []);
 }
 
+function resetAssignmentSelection(itemID) {
+  assignmentItemID = itemID;
+  assignmentSelection.clear();
+}
+
+function addAssignmentSelection(performerID, name) {
+  if (!performerID) return;
+  assignmentSelection.set(performerID, { performerID, name: name || performerID });
+}
+
 function updateSelectionControls() {
   const count = selectedIDs.size;
   els.selectionCount.textContent = `${count} selected`;
   els.clearSelection.disabled = count === 0;
   els.bulkSkip.disabled = count === 0;
   els.bulkReopen.disabled = count === 0;
+}
+
+function updateQueueSummary(status) {
+  const currentVisible = filteredItems(status.items || []).length;
+  if (status.filter_query) {
+    els.queueSummary.textContent = `Search matches ${status.visible_count || 0} of ${status.item_count || 0} items • ${currentVisible} in the current state filter`;
+    return;
+  }
+  els.queueSummary.textContent = `${currentVisible} items in the current state filter`;
 }
 
 function render(status) {
@@ -124,13 +165,18 @@ function render(status) {
   els.resolvedCount.textContent = String(status.resolved_count || 0);
   els.reviewCount.textContent = String(status.review_count || 0);
   els.repairCount.textContent = String(status.repair_count || 0);
+  els.autoAssignedCount.textContent = String(status.auto_assigned_count || 0);
   els.suppressedCount.textContent = String(status.suppressed_count || 0);
   els.emptyCount.textContent = String(status.empty_count || 0);
   els.settingsMinScore.value = String(status.match_min_score || 0);
   els.settingsMinLead.value = String(status.match_min_lead || 0);
   els.settingsStatus.textContent = `Active thresholds: min score ${status.match_min_score || 0}, min lead ${status.match_min_lead || 0}`;
+  if (document.activeElement !== els.queueSearchQuery) {
+    els.queueSearchQuery.value = status.filter_query || "";
+  }
   updateFilterButtons();
   updateSelectionControls();
+  updateQueueSummary(status);
   renderQueue(filteredItems(status.items || []));
   renderDetail(selected);
   renderAudit(status.audit_trail || []);
@@ -162,6 +208,9 @@ function repairButtonHTML(performerID, disabled) {
 function renderQueue(items) {
   els.queue.innerHTML = "";
   els.queueEmpty.style.display = items.length ? "none" : "block";
+  els.queueEmpty.textContent = state.filter_query
+    ? "No queue items match this search."
+    : "No review items loaded.";
   for (const item of items) {
     const card = document.createElement("div");
     card.className = "item" + (item.id === selectedID ? " active" : "");
@@ -169,9 +218,10 @@ function renderQueue(items) {
       <div class="item-head">
         <input class="selector" type="checkbox" aria-label="Select item" ${selectedIDs.has(item.id) ? "checked" : ""}>
         <strong>${escapeHTML(item.title || "(untitled)")}</strong>
-        <span class="pill ${item.review_state === "skipped" ? "ok" : item.status === "repair_needed" ? "warn" : ""}">${escapeHTML(item.review_state || "pending")}</span>
+        <span class="pill ${item.review_state === "skipped" ? "ok" : item.status === "repair_needed" || item.status === "auto_assigned" ? "warn" : ""}">${escapeHTML(item.review_state || "pending")}</span>
       </div>
       <div class="sub">${escapeHTML(item.type)} • ${escapeHTML(item.status.replace("_", " "))} • ${item.candidate_count} candidates • score ${item.best_score}</div>
+      ${item.auto_assign_reason ? `<div class="sub">${escapeHTML(item.auto_assign_reason)}</div>` : ""}
       ${item.suppression_reason ? `<div class="sub">${escapeHTML(describeSuppression(item.suppression_reason))}</div>` : ""}
       <div class="sub mono">${escapeHTML(item.path || "-")}</div>
     `;
@@ -202,16 +252,21 @@ function renderDetail(item) {
   els.detailEmpty.style.display = hasItem ? "none" : "block";
   if (!hasItem) {
     resetManualSearch("");
+    resetAssignmentSelection("");
     return;
   }
 
   if (manualSearchItemID !== item.id) {
     resetManualSearch(item.id);
   }
+  if (assignmentItemID !== item.id) {
+    resetAssignmentSelection(item.id);
+  }
 
   els.detailTitle.textContent = item.title || "(untitled)";
   const suppression = item.suppression_reason ? ` • ${describeSuppression(item.suppression_reason)}` : "";
-  els.detailStatus.textContent = `${item.review_state || "pending"} • ${item.status.replace("_", " ")} • ${item.candidate_count} candidates${suppression}`;
+  const autoAssign = item.auto_assign_reason ? ` • ${item.auto_assign_reason}` : "";
+  els.detailStatus.textContent = `${item.review_state || "pending"} • ${item.status.replace("_", " ")} • ${item.candidate_count} candidates${suppression}${autoAssign}`;
   els.detailType.textContent = item.type;
   els.detailPath.textContent = item.path || "-";
   els.detailStudio.textContent = item.studio || "-";
@@ -219,14 +274,23 @@ function renderDetail(item) {
   els.detailBody.textContent = item.details || "No details available.";
   els.skipItem.hidden = item.review_state === "skipped" || item.review_state === "resolved";
   els.reopenItem.hidden = item.review_state === "pending";
-  els.assignmentMeta.textContent = item.review_state === "resolved"
-    ? `Resolved ${fmt(item.resolved_at)}${item.assigned_performer_ids?.length ? ` • performer ids: ${item.assigned_performer_ids.join(", ")}` : ""}`
-    : "";
+  const assigned = item.assigned_performer_ids?.length ? ` • performer ids: ${item.assigned_performer_ids.join(", ")}` : "";
+  if (item.review_state === "resolved") {
+    els.assignmentMeta.textContent = `Resolved ${fmt(item.resolved_at)}${assigned}`;
+  } else if (item.auto_assigned && item.assigned_performer_ids?.length) {
+    els.assignmentMeta.textContent = `Current inherited performer ids: ${item.assigned_performer_ids.join(", ")}`;
+  } else {
+    els.assignmentMeta.textContent = "";
+  }
 
+  renderAssignmentTray(item);
   renderLinkedPerformers(item);
   els.candidates.innerHTML = "";
   if (!item.candidates || !item.candidates.length) {
-    els.candidates.innerHTML = `<div class="empty">${escapeHTML(item.suppression_reason ? describeSuppression(item.suppression_reason) : "No likely performer candidates yet.")}</div>`;
+    const emptyMessage = item.auto_assign_reason
+      ? "Auto-assigned from an exact scene path match. Reopen the item to review or correct it."
+      : (item.suppression_reason ? describeSuppression(item.suppression_reason) : "No likely performer candidates yet.");
+    els.candidates.innerHTML = `<div class="empty">${escapeHTML(emptyMessage)}</div>`;
   } else {
     for (const candidate of item.candidates) {
       const card = document.createElement("article");
@@ -240,9 +304,10 @@ function renderDetail(item) {
           <strong>${escapeHTML(candidate.name)}</strong>
           <div class="sub">Score ${candidate.score}</div>
         <div class="reason">${escapeHTML((candidate.reasons || []).join(", ") || "no reason recorded")}</div>
-        <div style="margin-top:12px;">
+        <div class="candidate-actions">
           <button type="button" class="assign-candidate" data-item-id="${escapeAttr(item.id)}" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || candidate.incomplete ? "disabled" : ""}>Assign</button>
           <button type="button" class="assign-selected" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || selectedIDs.size === 0 || candidate.incomplete ? "disabled" : ""}>Assign Selected</button>
+          <button type="button" class="add-performer" data-performer-id="${escapeAttr(candidate.performer_id)}" data-performer-name="${escapeAttr(candidate.name)}" ${item.review_state === "resolved" || candidate.incomplete ? "disabled" : ""}>Add To Set</button>
           ${candidate.incomplete && candidate.can_repair ? repairButtonHTML(candidate.performer_id, false) : ""}
         </div>
       </div>
@@ -251,7 +316,35 @@ function renderDetail(item) {
     }
   }
   bindAssignButtons(els.candidates);
+  bindAddButtons(els.candidates);
   bindRepairButtons(els.candidates);
+}
+
+function renderAssignmentTray(item) {
+  const entries = Array.from(assignmentSelection.values());
+  els.assignmentTray.hidden = item.review_state === "resolved";
+  els.assignmentSelected.innerHTML = "";
+  if (!entries.length) {
+    els.assignmentSelected.innerHTML = `<div class="empty">Add performers from suggestions or manual search to build a multi-performer assignment.</div>`;
+  } else {
+    for (const entry of entries) {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.innerHTML = `
+        <span>${escapeHTML(entry.name)}</span>
+        <button type="button" class="secondary remove-assignment" data-performer-id="${escapeAttr(entry.performerID)}">Remove</button>
+      `;
+      els.assignmentSelected.appendChild(chip);
+    }
+  }
+  for (const button of els.assignmentSelected.querySelectorAll(".remove-assignment")) {
+    button.addEventListener("click", () => {
+      assignmentSelection.delete(button.dataset.performerId);
+      renderDetail(item);
+    });
+  }
+  els.assignSelectedPerformers.disabled = item.review_state === "resolved" || entries.length === 0;
+  els.clearAssignmentSelected.disabled = entries.length === 0;
 }
 
 function renderLinkedPerformers(item) {
@@ -291,7 +384,13 @@ function candidateImageURL(itemID, performerID) {
 }
 
 async function loadStatus() {
-  const res = await fetch("api/status");
+  const params = new URLSearchParams();
+  const query = els.queueSearchQuery.value.trim();
+  if (query) {
+    params.set("q", query);
+  }
+  const url = params.toString() ? `api/status?${params.toString()}` : "api/status";
+  const res = await fetch(url);
   if (!res.ok) throw new Error(await res.text());
   render(await res.json());
 }
@@ -357,6 +456,16 @@ async function assignCandidateBulk(itemIDs, performerID) {
   await loadStatus();
 }
 
+async function assignPerformers(itemID, performerIDs) {
+  const res = await fetch("api/items/assign-multi", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_ids: [itemID], performer_ids: performerIDs }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  await loadStatus();
+}
+
 async function repairPerformer(performerID) {
   const res = await fetch("api/performers/repair", {
     method: "POST",
@@ -380,6 +489,9 @@ function bindAssignButtons(root) {
       button.disabled = true;
       try {
         await assignCandidate(button.dataset.itemId, button.dataset.performerId);
+        setFlash("Performer assigned.", "ok");
+      } catch (err) {
+        setFlash(String(err), "error");
       } finally {
         button.disabled = false;
       }
@@ -397,9 +509,25 @@ function bindAssignButtons(root) {
         await assignCandidateBulk(itemIDs, button.dataset.performerId);
         selectedIDs.clear();
         updateSelectionControls();
+        setFlash(`Assigned performer to ${itemIDs.length} selected item${itemIDs.length === 1 ? "" : "s"}.`, "ok");
+      } catch (err) {
+        setFlash(String(err), "error");
       } finally {
         button.disabled = false;
       }
+    });
+  }
+}
+
+function bindAddButtons(root) {
+  for (const button of root.querySelectorAll(".add-performer")) {
+    button.addEventListener("click", () => {
+      addAssignmentSelection(button.dataset.performerId, button.dataset.performerName);
+      const item = state.items?.find((entry) => entry.id === selectedID);
+      if (item) {
+        renderDetail(item);
+      }
+      setFlash(`Added ${button.dataset.performerName} to the pending assignment.`, "ok");
     });
   }
 }
@@ -410,6 +538,9 @@ function bindRepairButtons(root) {
       button.disabled = true;
       try {
         await repairPerformer(button.dataset.performerId);
+        setFlash("Performer repair requested.", "ok");
+      } catch (err) {
+        setFlash(String(err), "error");
       } finally {
         button.disabled = false;
       }
@@ -445,9 +576,10 @@ function renderManualSearchResults(item, results) {
         <div class="sub">Score ${candidate.score}</div>
         <div class="reason">${escapeHTML((candidate.reasons || []).join(", ") || aliases)}</div>
         <div class="sub">${escapeHTML(aliases)}${candidate.incomplete ? " • incomplete performer" : ""}</div>
-        <div style="margin-top:12px;">
+        <div class="candidate-actions">
           <button type="button" class="assign-candidate" data-item-id="${escapeAttr(item.id)}" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || candidate.incomplete ? "disabled" : ""}>Assign</button>
           <button type="button" class="assign-selected" data-performer-id="${escapeAttr(candidate.performer_id)}" ${item.review_state === "resolved" || selectedIDs.size === 0 || candidate.incomplete ? "disabled" : ""}>Assign Selected</button>
+          <button type="button" class="add-performer" data-performer-id="${escapeAttr(candidate.performer_id)}" data-performer-name="${escapeAttr(candidate.name)}" ${item.review_state === "resolved" || candidate.incomplete ? "disabled" : ""}>Add To Set</button>
           ${candidate.incomplete && candidate.can_repair ? repairButtonHTML(candidate.performer_id, false) : ""}
         </div>
       </div>
@@ -455,6 +587,7 @@ function renderManualSearchResults(item, results) {
     els.manualSearchResults.appendChild(card);
   }
   bindAssignButtons(els.manualSearchResults);
+  bindAddButtons(els.manualSearchResults);
   bindRepairButtons(els.manualSearchResults);
 }
 
@@ -481,7 +614,12 @@ function escapeAttr(value) {
 }
 
 els.refresh.addEventListener("click", async () => {
-  await refreshQueue();
+  try {
+    await refreshQueue();
+    setFlash("Reviewer queue refreshed.", "ok");
+  } catch (err) {
+    setFlash(String(err), "error");
+  }
   schedule();
 });
 els.settingsSave.addEventListener("click", async () => {
@@ -495,8 +633,10 @@ els.settingsSave.addEventListener("click", async () => {
   els.settingsStatus.textContent = "Applying reviewer thresholds...";
   try {
     await updateSettings(minScore, minLead);
+    setFlash("Reviewer thresholds updated.", "ok");
   } catch (err) {
     els.settingsStatus.textContent = String(err);
+    setFlash(String(err), "error");
   } finally {
     els.settingsSave.disabled = false;
   }
@@ -518,6 +658,16 @@ els.filterResolved.addEventListener("click", () => {
   filter = "resolved";
   render(state);
 });
+els.queueSearchQuery.addEventListener("input", () => {
+  clearTimeout(queueSearchTimer);
+  queueSearchTimer = setTimeout(async () => {
+    try {
+      await loadStatus();
+    } catch (err) {
+      els.statusText.textContent = String(err);
+    }
+  }, 200);
+});
 els.selectVisible.addEventListener("click", () => {
   for (const item of visibleItems()) {
     selectedIDs.add(item.id);
@@ -530,25 +680,45 @@ els.clearSelection.addEventListener("click", () => {
 });
 els.skipItem.addEventListener("click", async () => {
   if (!selectedID) return;
-  await updateItemState(selectedID, "skipped");
+  try {
+    await updateItemState(selectedID, "skipped");
+    setFlash("Item skipped.", "ok");
+  } catch (err) {
+    setFlash(String(err), "error");
+  }
 });
 els.reopenItem.addEventListener("click", async () => {
   if (!selectedID) return;
-  await updateItemState(selectedID, "pending");
+  try {
+    await updateItemState(selectedID, "pending");
+    setFlash("Item reopened for review.", "ok");
+  } catch (err) {
+    setFlash(String(err), "error");
+  }
 });
 els.bulkSkip.addEventListener("click", async () => {
   const itemIDs = selectedItemIDs();
   if (!itemIDs.length) return;
-  await updateItemStateBulk(itemIDs, "skipped");
-  selectedIDs.clear();
-  render(state);
+  try {
+    await updateItemStateBulk(itemIDs, "skipped");
+    selectedIDs.clear();
+    render(state);
+    setFlash(`Skipped ${itemIDs.length} selected item${itemIDs.length === 1 ? "" : "s"}.`, "ok");
+  } catch (err) {
+    setFlash(String(err), "error");
+  }
 });
 els.bulkReopen.addEventListener("click", async () => {
   const itemIDs = selectedItemIDs();
   if (!itemIDs.length) return;
-  await updateItemStateBulk(itemIDs, "pending");
-  selectedIDs.clear();
-  render(state);
+  try {
+    await updateItemStateBulk(itemIDs, "pending");
+    selectedIDs.clear();
+    render(state);
+    setFlash(`Reopened ${itemIDs.length} selected item${itemIDs.length === 1 ? "" : "s"}.`, "ok");
+  } catch (err) {
+    setFlash(String(err), "error");
+  }
 });
 els.manualSearchButton.addEventListener("click", async () => {
   const item = state.items?.find((entry) => entry.id === selectedID);
@@ -567,11 +737,39 @@ els.manualSearchButton.addEventListener("click", async () => {
     const results = await searchPerformers(query);
     els.manualSearchStatus.textContent = `${results.length} performer match${results.length === 1 ? "" : "es"}`;
     renderManualSearchResults(item, results);
+    setFlash(`Loaded ${results.length} manual performer match${results.length === 1 ? "" : "es"}.`, "ok");
   } catch (err) {
     els.manualSearchStatus.textContent = String(err);
     els.manualSearchResults.innerHTML = "";
+    setFlash(String(err), "error");
   } finally {
     els.manualSearchButton.disabled = false;
+  }
+});
+els.assignSelectedPerformers.addEventListener("click", async () => {
+  const item = state.items?.find((entry) => entry.id === selectedID);
+  const performerIDs = Array.from(assignmentSelection.keys());
+  if (!item || !performerIDs.length) return;
+  const summary = performerIDs.length === 1
+    ? "Assign 1 selected performer to this item?"
+    : `Assign ${performerIDs.length} selected performers to this item?`;
+  if (!window.confirm(summary)) return;
+  els.assignSelectedPerformers.disabled = true;
+  try {
+    await assignPerformers(item.id, performerIDs);
+    resetAssignmentSelection(item.id);
+    setFlash(`Assigned ${performerIDs.length} performer${performerIDs.length === 1 ? "" : "s"} to ${item.title || item.id}.`, "ok");
+  } catch (err) {
+    setFlash(String(err), "error");
+  } finally {
+    els.assignSelectedPerformers.disabled = false;
+  }
+});
+els.clearAssignmentSelected.addEventListener("click", () => {
+  assignmentSelection.clear();
+  const item = state.items?.find((entry) => entry.id === selectedID);
+  if (item) {
+    renderDetail(item);
   }
 });
 els.manualSearchQuery.addEventListener("keydown", async (event) => {
